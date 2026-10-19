@@ -1,0 +1,40 @@
+# Ficha del proyecto en el Portal de Desarrollo HRL. Declara el proyecto (un
+# System, que aparece en «Proyectos») y su repositorio principal (un Component).
+# Si cambias algo aquí (responsable, etapa, tecnologías), el portal lo toma solo.
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: egresos-hospitalarios
+  title: "Egresos Hospitalarios"
+  description: "Sistema de esgresos hospitalarios. Recopila información de todas las áreas que emiten censos. Conecta y replica las tablas de aletheia y hace segimiento del paciente desde sus ingreso"
+  links:
+    - url: https://github.com/DevHRL/egresos-hospitalarios
+      title: Repositorio
+spec:
+  owner: user:default/giancarlochavez
+  domain: salud-hrl
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: egresos-hospitalarios
+  title: "Egresos Hospitalarios"
+  description: "Sistema de esgresos hospitalarios. Recopila información de todas las áreas que emiten censos. Conecta y replica las tablas de aletheia y hace segimiento del paciente desde sus ingreso"
+  annotations:
+    github.com/project-slug: DevHRL/egresos-hospitalarios
+    backstage.io/source-location: url:https://github.com/DevHRL/egresos-hospitalarios
+    # La documentación está en docs/ de este repo (ver mkdocs.yml).
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - hrl-core-ui
+    - react
+    - docker
+    - python
+    - postgresql
+    - java
+spec:
+  type: website
+  # experimental mientras se diseña o desarrolla; production cuando ya se usa.
+  lifecycle: experimental
+  owner: user:default/giancarlochavez
+  system: egresos-hospitalarios
