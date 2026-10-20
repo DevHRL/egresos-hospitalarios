@@ -1,15 +1,10 @@
-site_name: "Egresos Hospitalarios"
-site_description: "Sistema de esgresos hospitalarios. Recopila información de todas las áreas que emiten censos. Conecta y replica las tablas de aletheia y hace segimiento del paciente desde sus ingreso"
-# Botón «Editar esta página» en el portal: abre el archivo en GitHub.
-repo_url: https://github.com/DevHRL/egresos-hospitalarios
-edit_uri: edit/main/docs/
+site_name: Egresos Hospitalarios
+site_description: Sistema de esgresos hospitalarios. Recopila información de todas las áreas que emiten censos. Conecta y replica las tablas de aletheia y hace segimiento del paciente desde sus ingreso
+
 nav:
   - Inicio: index.md
-  - Proceso: proceso/index.md
-  - Arquitectura: arquitectura.md
-  - Tecnologías: tecnologias.md
-  - Decisiones:
-      - decisiones/index.md
-      - 0001 · Stack inicial: decisiones/0001-stack-inicial.md
+  - Cómo levantarlo: levantamiento.md
+  - Decisiones: decisiones.md
+
 plugins:
   - techdocs-core
