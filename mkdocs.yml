@@ -1,15 +1,29 @@
 site_name: "Egresos Hospitalarios"
-site_description: "Sistema de esgresos hospitalarios. Recopila información de todas las áreas que emiten censos. Conecta y replica las tablas de aletheia y hace segimiento del paciente desde sus ingreso"
+site_description: "Sistema de egresos hospitalarios. Recopila información de todas las áreas que emiten censos, conecta y replica las tablas de Aletheia y hace seguimiento del paciente desde su ingreso"
 # Botón «Editar esta página» en el portal: abre el archivo en GitHub.
 repo_url: https://github.com/DevHRL/egresos-hospitalarios
 edit_uri: edit/main/docs/
 nav:
   - Inicio: index.md
-  - Proceso: proceso/index.md
+  - Proceso:
+      - proceso/index.md
+      - Reglas de negocio: proceso/reglas.md
+      - Completado desde la HC física: proceso/completado-hc.md
+      - Camas, habitaciones y mantenimiento: proceso/camas-y-mantenimiento.md
+  - Módulos y pantallas: modulos.md
   - Arquitectura: arquitectura.md
   - Tecnologías: tecnologias.md
+  - Plan de implementación: plan.md
+  - Piloto Medicina: piloto-medicina.md
+  - Preguntas técnicas: preguntas-tecnicas.md
+  - "Tarea: base de datos PostgreSQL": tareas/base-de-datos-postgresql.md
   - Decisiones:
       - decisiones/index.md
       - 0001 · Stack inicial: decisiones/0001-stack-inicial.md
+      - 0002 · Movimientos como fuente única: decisiones/0002-movimientos-fuente-unica.md
+      - 0003 · Captura dual papel/digital: decisiones/0003-captura-dual-papel-digital.md
+      - 0004 · Plano 2D e isométrico: decisiones/0004-vista-isometrica-svg.md
+      - 0005 · Ingreso obligatorio y reemplazo de Aletheia: decisiones/0005-ingreso-obligatorio-reemplazo-aletheia.md
+      - 0006 · Una credencial por área: decisiones/0006-credencial-por-area.md
 plugins:
   - techdocs-core
