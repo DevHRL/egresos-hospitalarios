@@ -58,3 +58,14 @@ las semillas de maestros.
   `pintura3d.js`. La planta 2D sigue en SVG. Contradice la regla de `CLAUDE.md`
   «el plano se dibuja con SVG y React»: hay que actualizarla.
 - Se quitó el módulo «Recorrido del flujo»: cada cuenta entra directo al plano 3D.
+- **Pantalla del plano (2026-11-11).** Plano a la izquierda (3D o planta 2D) y
+  tarjetas de camas a la derecha, agrupadas por servicio y habitación, con una
+  sola selección; debajo, la ficha de la cama (estado, paciente, estancia y
+  acciones de la cuenta).
+- **Cámara guiada.** El 3D no se gira, acerca ni desplaza a mano: lo mueve el
+  sistema al elegir una cama o habitación (en el plano o en la lista), que se
+  mira desde su pasillo, de tres cuartos. Quedan «Vista general» (o Esc) y los
+  giros de 90°. Motivos: la rueda y el arrastre se quedaban con el desplazamiento
+  de la página (la ficha está debajo) y peleaban con el toque en tabletas; cada
+  selección llega a un ángulo legible; y las tarjetas son el control accesible
+  con teclado y lector de pantalla.

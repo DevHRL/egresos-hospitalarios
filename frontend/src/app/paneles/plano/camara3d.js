@@ -135,28 +135,6 @@ export function proyector(camara, area, base) {
   }
 }
 
-/* Desplazamiento en el piso (metros) que corresponde a mover dx, dy px en
-   pantalla. Con la cámara casi rasante el eje vertical se acota para que un
-   arrastre corto no mande el plano lejos. */
-export function pantallaAPiso(camara, escala, dx, dy) {
-  const g = girador(camara.azimut, camara.elevacion)
-  const a = dx / escala
-  const b = dy / (escala * Math.max(g.sinE, 0.2))
-  return { x: a * g.cos + b * g.sin, y: -a * g.sin + b * g.cos }
-}
-
-/* Acerca o aleja dejando fijo el punto del piso que está bajo (px, py). */
-export function zoomHacia(camara, factor, area, base, px, py) {
-  const zoom = limitar(camara.zoom * factor, ZOOM_MIN, ZOOM_MAX)
-  const antes = pantallaAPiso(camara, base * camara.zoom, px - area.cx, py - area.cy)
-  const despues = pantallaAPiso(camara, base * zoom, px - area.cx, py - area.cy)
-  return {
-    ...camara,
-    zoom,
-    centro: { x: camara.centro.x + antes.x - despues.x, y: camara.centro.y + antes.y - despues.y },
-  }
-}
-
 /* Cámara que encuadra una habitación con el giro actual. */
 export function camaraSobre(camara, zona, area, base, holgura = 0.72) {
   const g = girador(camara.azimut, camara.elevacion)

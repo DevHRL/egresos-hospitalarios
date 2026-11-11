@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  areaLibre, camaraInicial, camaraSobre, escalaBase, interpolar, murosDelFondo, pantallaAPiso, proyector, zoomHacia,
+  SESGO_TRES_CUARTOS, areaLibre, azimutDesdePasillo, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, murosDelFondo, proyector,
 } from '../src/app/paneles/plano/camara3d.js'
 
 const caja = { x0: 0, y0: 0, x1: 40, y1: 12 }
@@ -23,28 +23,24 @@ test('la vista inicial es el isométrico de siempre y centra la caja', () => {
   cerca((dy - ay) / (ax - dx), Math.tan(Math.PI / 6), 'pendiente de y')
 })
 
-test('arrastrar en pantalla y volver a proyectar deja el punto donde estaba', () => {
-  for (const azimut of [0, 45, 130, 270]) {
-    const camara = { ...camaraInicial(caja), azimut, elevacion: 50 }
-    const v = proyector(camara, area, base)
-    const d = pantallaAPiso(camara, v.escala, 37, -21)
-    const [x0, y0] = v.punto(5, 5)
-    const [x1, y1] = v.punto(5 + d.x, 5 + d.y)
-    cerca(x1 - x0, 37, `dx con azimut ${azimut}`)
-    cerca(y1 - y0, -21, `dy con azimut ${azimut}`)
-  }
+test('al elegir una habitación se la mira desde su pasillo, de tres cuartos', () => {
+  /* Habitación arriba del pasillo: quien mira queda hacia +y (abajo). */
+  const sala = { x: 2, y: 0, ancho: 4, alto: 4, tipo: 'habitacion' }
+  const pasillo = { x: 0, y: 4, ancho: 20, alto: 2, tipo: 'pasillo' }
+  cerca(azimutDesdePasillo(sala, [sala, pasillo]), SESGO_TRES_CUARTOS, 'pasillo abajo')
+  /* Pasillo a la derecha (+x): azimut 90° más el sesgo. */
+  const lateral = { x: 6, y: 0, ancho: 2, alto: 10, tipo: 'pasillo' }
+  cerca(azimutDesdePasillo(sala, [sala, lateral]), 90 + SESGO_TRES_CUARTOS, 'pasillo a la derecha')
+  assert.equal(azimutDesdePasillo(sala, [sala]), null)
+  const v = proyector({ ...camaraInicial(caja), azimut: azimutDesdePasillo(sala, [sala, pasillo]) }, area, base)
+  assert.ok(v.mira(0, 1), 'la cara que da al pasillo mira a la cámara')
 })
 
-test('el zoom con la rueda deja fijo el punto bajo el cursor', () => {
-  const camara = { ...camaraInicial(caja), azimut: 200 }
-  const antes = proyector(camara, area, base)
-  const cursor = [300, 200]
-  const d = pantallaAPiso(camara, antes.escala, cursor[0] - area.cx, cursor[1] - area.cy)
-  const piso = [camara.centro.x + d.x, camara.centro.y + d.y]
-  const despues = proyector(zoomHacia(camara, 2, area, base, ...cursor), area, base)
-  const [px, py] = despues.punto(...piso)
-  cerca(px, cursor[0], 'x bajo el cursor')
-  cerca(py, cursor[1], 'y bajo el cursor')
+test('el destino de la cámara gira, inclina y centra lo pedido', () => {
+  const sala = { x: 30, y: 1, ancho: 5, alto: 4 }
+  const c = camaraHacia(camaraInicial(caja), sala, area, base, { azimut: 210, elevacion: 50, centro: { x: 31, y: 2 } })
+  assert.deepEqual([c.azimut, c.elevacion, c.centro], [210, 50, { x: 31, y: 2 }])
+  assert.ok(c.zoom > 1)
 })
 
 test('solo se dibujan los dos muros del fondo y cambian al girar', () => {

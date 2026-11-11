@@ -213,7 +213,7 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
     setSalaId(null)
     onSeleccionar(null)
   }
-  const escena = useCamara3d({ ref, tamano, caja, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
+  const escena = useCamara3d({ tamano, caja, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
   const { vista, camara } = escena
 
   /* Se pinta tras cada cambio de cámara, datos, foco o tema: un solo canvas,
@@ -236,10 +236,6 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
   }, [vista, zonas, camas, porCama, foco, seleccion, encima, atenuacion, paleta, tamano, iconos])
 
   const alPasar = (e) => {
-    if (escena.mover(e)) {
-      tip.hide()
-      return
-    }
     const s = bajoElPuntero(sensibles.current, ...local(e))
     const camaId = s?.tipo === 'cama' ? s.id : null
     if (camaId !== encima) setEncima(camaId)
@@ -277,10 +273,10 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
         <span>{titulo}</span>
       </figcaption>
       <div
-        className={`mapa-lienzo escena3d${escena.arrastrando ? ' escena3d--arrastrando' : ''}`}
+        className="mapa-lienzo escena3d"
         ref={ref}
         {...escena.lienzo}
-        aria-label="Plano de camas en 3D. Flechas para girar e inclinar, más y menos para acercar, Esc para ver todo. La vista Tarjetas lista las mismas camas."
+        aria-label="Plano de camas en 3D. Elige una cama en el plano o en la lista; Esc vuelve a ver todo el piso."
       >
         <canvas
           ref={lienzo}
@@ -295,7 +291,7 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
         {tamano.ancho > 0 && <ControlesCamara {...escena.controles} />}
       </div>
       <div className="figura3d__fila">
-        <span>Arrastra para girar · Mayús o clic derecho para mover · rueda para acercar · pulsa una habitación</span>
+        <span>Pulsa una cama o una habitación · o elígela en la lista</span>
         <output className="figura3d__lectura" aria-live="polite">{lectura}</output>
       </div>
     </figure>
