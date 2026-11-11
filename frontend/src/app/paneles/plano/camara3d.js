@@ -179,17 +179,34 @@ export function camaraHacia(camara, zona, area, base, { azimut = camara.azimut, 
 
 /* Paso intermedio de una animación (t de 0 a 1). El azimut va por el giro
    más corto. */
-export function interpolar(a, b, t) {
-  const k = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2
+export const suavizar = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+
+/* Con `arco` (0 a ~0.5) el zoom se abre a mitad de camino y vuelve a cerrarse,
+   como quien se aleja un poco para ver a dónde va: así un salto entre
+   habitaciones lejanas se entiende. */
+export function interpolar(a, b, t, { arco = 0 } = {}) {
+  const k = suavizar(t)
   const giro = ((b.azimut - a.azimut + 540) % 360) - 180
   const mezcla = (u, v) => u + (v - u) * k
+  const apertura = 1 - arco * Math.sin(Math.PI * t)
   return {
     azimut: a.azimut + giro * k,
     elevacion: mezcla(a.elevacion, b.elevacion),
     /* El zoom se interpola en escala logarítmica: así acercarse se siente parejo. */
-    zoom: Math.exp(mezcla(Math.log(a.zoom), Math.log(b.zoom))),
+    zoom: Math.max(ZOOM_MIN, Math.exp(mezcla(Math.log(a.zoom), Math.log(b.zoom))) * apertura),
     centro: { x: mezcla(a.centro.x, b.centro.x), y: mezcla(a.centro.y, b.centro.y) },
   }
+}
+
+/* Cuánto dura y cuánto se abre el paso de una cámara a otra: más largo si gira
+   más o si viaja más lejos (en anchos de pantalla), siempre entre 0,7 y 1,5 s. */
+export function recorrido(a, b, anchoVisibleMetros) {
+  const giro = Math.abs(((b.azimut - a.azimut + 540) % 360) - 180)
+  const viaje = Math.hypot(b.centro.x - a.centro.x, b.centro.y - a.centro.y) / Math.max(anchoVisibleMetros, 1)
+  const cambioZoom = Math.abs(Math.log(b.zoom / a.zoom))
+  const arco = Math.min(0.45, Math.max(0, viaje - 0.25) * 0.5)
+  const duracion = Math.min(1500, 700 + 400 * Math.min(1, giro / 180) + 450 * Math.min(1, viaje) + 150 * Math.min(1, cambioZoom))
+  return { duracion, arco }
 }
 
 /* Muros del fondo de una habitación: los lados cuya cara interior mira a quien

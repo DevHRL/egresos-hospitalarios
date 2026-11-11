@@ -179,10 +179,14 @@ function losa(salida, vista, z, { enFoco, a, baldosas: conBaldosas }) {
    sensibles en el mismo orden de pintado (la última que contiene un punto es
    la que está encima). Con `pantalla` ({ ancho, alto }) se omite lo que cae
    fuera de ella: acercado a una habitación, el resto no se calcula. */
-export function construirEscena({ vista, zonas, camas, infoDe, foco = null, seleccion = null, encima = null, atenuacion = 0, pantalla = null }) {
+export function construirEscena({ vista, zonas, camas, infoDe, foco = null, seleccion = null, encima = null, atenuacion = 0, luzDe = null, pantalla = null }) {
   const figuras = []
   const sensibles = []
-  const alfa = (zonaId) => (foco && zonaId !== foco.id ? 1 - (1 - ATENUADA) * atenuacion : 1)
+  /* Con `luzDe(zonaId)` (0 a 1) cada zona se funde por su cuenta; si no, todo
+     lo que no está en foco se atenúa junto según `atenuacion`. */
+  const alfa = luzDe
+    ? (zonaId) => ATENUADA + (1 - ATENUADA) * luzDe(zonaId)
+    : (zonaId) => (foco && zonaId !== foco.id ? 1 - (1 - ATENUADA) * atenuacion : 1)
   const zonaPorId = new Map(zonas.map((z) => [z.id, z]))
   const rectDe = (c) => rectCama(c, zonaPorId.get(c.zonaId))
   const centroCama = (c) => {

@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  SESGO_TRES_CUARTOS, areaLibre, azimutDesdePasillo, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, murosDelFondo, proyector,
+  SESGO_TRES_CUARTOS, areaLibre, azimutDesdePasillo, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, murosDelFondo, proyector, recorrido,
 } from '../src/app/paneles/plano/camara3d.js'
 
 const caja = { x0: 0, y0: 0, x1: 40, y1: 12 }
@@ -62,4 +62,34 @@ test('la animación gira por el camino más corto', () => {
   const b = { ...a, azimut: 10 }
   const medio = interpolar(a, b, 0.5)
   cerca(((medio.azimut % 360) + 360) % 360, 0, 'azimut a mitad de camino')
+})
+
+test('el paso entre habitaciones lejanas dura más y se aleja a mitad de camino', () => {
+  const cerca = { ...camaraInicial(caja), zoom: 4, centro: { x: 5, y: 3 } }
+  const vecina = { ...cerca, centro: { x: 6, y: 3 } }
+  const lejana = { ...cerca, azimut: 225, centro: { x: 35, y: 3 } }
+  const ancho = 1000 / (base * 4)
+  const corto = recorrido(cerca, vecina, ancho)
+  const largo = recorrido(cerca, lejana, ancho)
+  assert.equal(corto.arco, 0)
+  assert.ok(largo.arco > 0.2 && largo.arco <= 0.45)
+  assert.ok(corto.duracion >= 700 && largo.duracion <= 1500 && largo.duracion > corto.duracion + 400)
+  const medio = interpolar(cerca, lejana, 0.5, { arco: largo.arco })
+  assert.ok(medio.zoom < 4 * 0.8, `zoom a mitad de camino: ${medio.zoom}`)
+})
+
+test('la animación no salta: de un cuadro a otro cambia poco, y arranca y llega despacio', () => {
+  const a = { ...camaraInicial(caja), zoom: 4, centro: { x: 5, y: 3 } }
+  const b = { ...a, azimut: 225, centro: { x: 35, y: 3 } }
+  const { duracion, arco } = recorrido(a, b, 1000 / (base * 4))
+  const cuadros = Math.ceil(duracion / 16.7)
+  const pasos = Array.from({ length: cuadros + 1 }, (_, i) => interpolar(a, b, i / cuadros, { arco }))
+  const saltoGiro = Math.max(...pasos.slice(1).map((p, i) => Math.abs(p.azimut - pasos[i].azimut)))
+  const saltoCentro = Math.max(...pasos.slice(1).map((p, i) => Math.hypot(p.centro.x - pasos[i].centro.x, p.centro.y - pasos[i].centro.y)))
+  assert.ok(saltoGiro < 6, `giro por cuadro: ${saltoGiro}`)
+  assert.ok(saltoCentro < 1.2, `metros por cuadro: ${saltoCentro}`)
+  /* Suave al empezar y al terminar: el primer y el último paso son mucho menores que el del medio. */
+  const paso = (i) => Math.abs(pasos[i + 1].azimut - pasos[i].azimut)
+  assert.ok(paso(0) < paso(Math.floor(cuadros / 2)) / 10 && paso(cuadros - 1) < paso(Math.floor(cuadros / 2)) / 10)
+  assert.deepEqual([(pasos.at(-1).azimut + 360) % 360, pasos.at(-1).zoom, pasos.at(-1).centro], [225, 4, b.centro])
 })

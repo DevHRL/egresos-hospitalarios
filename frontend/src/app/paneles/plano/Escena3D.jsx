@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Tooltip } from '@hrl/core-ui'
-import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, proyector } from './camara3d.js'
+import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, proyector, recorrido } from './camara3d.js'
 
 /* Cámara guiada del plano 3D. Quien usa el plano no la mueve a mano: la
    mueve el sistema al elegir una cama o una habitación (en el plano o en la
@@ -13,7 +13,6 @@ import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase,
 
    Un clic (o un toque) sobre el plano llega a `onPulsar` con el evento. */
 
-const DURACION_MS = 520
 const SIN_MARGENES = { arriba: 16, abajo: 16, izquierda: 16, derecha: 16 }
 
 const reducirMovimiento = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -42,14 +41,20 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
     }
   }, [])
 
+  /* Animación suave: dura según cuánto gira y viaja, y entre habitaciones
+     lejanas se aleja un poco a mitad de camino. Si llega otra orden en medio,
+     parte desde donde va. */
+  const escalaRef = useRef(1)
+  const anchoRef = useRef(1)
   const animarA = useCallback((destino) => {
     cancelAnimationFrame(animacion.current)
     const desde = actual.current
     if (reducirMovimiento()) return fijar(destino)
+    const { duracion, arco } = recorrido(desde, destino, anchoRef.current / (escalaRef.current * desde.zoom))
     const inicio = performance.now()
     const paso = (ahora) => {
-      const t = Math.min(1, (ahora - inicio) / DURACION_MS)
-      fijar(t === 1 ? destino : interpolar(desde, destino, t))
+      const t = Math.min(1, (ahora - inicio) / duracion)
+      fijar(t === 1 ? destino : interpolar(desde, destino, t, { arco }))
       if (t < 1) animacion.current = requestAnimationFrame(paso)
     }
     animacion.current = requestAnimationFrame(paso)
@@ -59,6 +64,9 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
     cancelAnimationFrame(animacion.current)
     cancelAnimationFrame(cuadro.current)
   }, [])
+
+  escalaRef.current = base
+  anchoRef.current = area.ancho
 
   /* Otro piso u otro servicio: se vuelve a la vista inicial. */
   const claveCaja = `${caja.x0},${caja.y0},${caja.x1},${caja.y1}`
@@ -114,8 +122,9 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
   }
 }
 
-/* Botonera del plano, abajo a la derecha. El kit aún no tiene iconos de girar:
-   por eso los giros llevan texto. */
+/* Botonera del plano, abajo a la derecha. Las flechas circulares de girar son
+   caracteres de texto (↺ ↻) porque el kit aún no tiene esos iconos: cuando
+   el kit publique `sh-girar-…`, se reemplazan por `<Icon>`. */
 export const ControlesCamara = memo(function ControlesCamara({ girar, vistaGeneral, hayFoco, nombreFoco }) {
   return (
     <div className="escena3d__controles" role="toolbar" aria-label="Vista del plano 3D">
@@ -125,10 +134,10 @@ export const ControlesCamara = memo(function ControlesCamara({ girar, vistaGener
         </Button>
         <span className="plano-flotante__separador" aria-hidden="true" />
         <Tooltip title="Girar a la izquierda" body="Gira el plano 90° alrededor de lo que se está viendo." focusable={false}>
-          <Button tone="ghost" size="sm" onClick={() => girar(-90)} aria-label="Girar 90° a la izquierda">−90°</Button>
+          <Button tone="ghost" size="sm" onClick={() => girar(-90)} aria-label="Girar a la izquierda"><span className="escena3d__giro" aria-hidden="true">↺</span></Button>
         </Tooltip>
         <Tooltip title="Girar a la derecha" body="Gira el plano 90° alrededor de lo que se está viendo." focusable={false}>
-          <Button tone="ghost" size="sm" onClick={() => girar(90)} aria-label="Girar 90° a la derecha">+90°</Button>
+          <Button tone="ghost" size="sm" onClick={() => girar(90)} aria-label="Girar a la derecha"><span className="escena3d__giro" aria-hidden="true">↻</span></Button>
         </Tooltip>
       </div>
     </div>

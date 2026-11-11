@@ -5,7 +5,7 @@ import { useTamano } from '../plano/comun.js'
 import { servicioPorId } from '../../datos/catalogo.js'
 import { ControlesCamara, useCamara3d } from '../plano/Escena3D.jsx'
 import { OCUPADA, bajoElPuntero, construirEscena } from '../plano/escena3d.js'
-import { azimutDesdePasillo } from '../plano/camara3d.js'
+import { azimutDesdePasillo, suavizar } from '../plano/camara3d.js'
 import { pintar, resolverPaleta } from '../plano/pintura3d.js'
 
 /* El plano ya cargado (no se edita desde la interfaz), con cada cama pintada
@@ -16,7 +16,7 @@ import { pintar, resolverPaleta } from '../plano/pintura3d.js'
    girar y acercar vaya fluido; la planta 2D sigue en SVG. */
 
 const MARGEN = 18
-const FUNDIDO_MS = 500
+const FUNDIDO_MS = 700
 /* Inclinación al enfocar: lo bastante alta para ver dentro de la habitación. */
 const ELEVACION_FOCO = 50
 
@@ -121,30 +121,39 @@ function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, 
   )
 }
 
-/* Atenuación del resto al enfocar una habitación: de 0 a 1 en medio segundo. */
-function useAtenuacion(activa) {
-  const [valor, setValor] = useState(0)
-  const actual = useRef(0)
+/* Luz de cada zona (1 = plena, 0 = atenuada). Al enfocar otra habitación, la
+   anterior se apaga mientras la nueva se enciende, con la misma curva suave
+   que la cámara. Devuelve `luzDe(zonaId)`. */
+function useLuces(focoId, zonas) {
+  const luces = useRef(new Map())
+  const ids = useRef([])
+  ids.current = zonas.map((z) => z.id)
+  const [, setCuadro] = useState(0)
   useEffect(() => {
-    const destino = activa ? 1 : 0
+    const destinoDe = (id) => (!focoId || id === focoId ? 1 : 0)
+    const desde = new Map(luces.current)
+    const todas = new Set([...ids.current, ...desde.keys()])
     if (reducirMovimiento()) {
-      actual.current = destino
-      setValor(destino)
+      for (const z of todas) luces.current.set(z, destinoDe(z))
+      setCuadro((n) => n + 1)
       return undefined
     }
-    const desde = actual.current
     const inicio = performance.now()
     let id = 0
     const paso = (t) => {
-      const k = Math.min(1, (t - inicio) / FUNDIDO_MS)
-      actual.current = desde + (destino - desde) * k
-      setValor(actual.current)
+      const k = suavizar(Math.min(1, (t - inicio) / FUNDIDO_MS))
+      for (const z of todas) {
+        const a = desde.get(z) ?? 1
+        luces.current.set(z, a + (destinoDe(z) - a) * k)
+      }
+      setCuadro((n) => n + 1)
       if (k < 1) id = requestAnimationFrame(paso)
     }
     id = requestAnimationFrame(paso)
     return () => cancelAnimationFrame(id)
-  }, [activa])
-  return valor
+  }, [focoId])
+  /* Toda zona arranca encendida y desde ahí se funde. */
+  return (zonaId) => luces.current.get(zonaId) ?? 1
 }
 
 /* Paleta resuelta de los tokens del kit; se vuelve a resolver si cambia el tema. */
@@ -182,11 +191,12 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
      pulsada en el plano. */
   const [salaId, setSalaId] = useState(null)
   const [encima, setEncima] = useState(null)
-  const [iconos, setIconos] = useState(0)
+  /* Cuando un ícono termina de cargar, se vuelve a pintar. */
+  const [, setIconos] = useState(0)
   const camaElegida = seleccion ? camas.find((c) => c.id === seleccion) : null
   const focoId = camaElegida?.zonaId ?? salaId
   const foco = zonas.find((z) => z.id === focoId && z.tipo === 'habitacion') ?? null
-  const atenuacion = useAtenuacion(Boolean(foco))
+  const luzDe = useLuces(foco?.id ?? null, zonas)
   /* Se gira para mirar la habitación desde el pasillo y se centra entre la
      habitación y la cama elegida. */
   const objetivo = useMemo(() => {
@@ -230,10 +240,10 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
       const info = porCama.get(c.id)
       return { estado: info.estado, falla: info.falla, icono: iconoDe(info) }
     }
-    const { figuras, sensibles: zonasSensibles } = construirEscena({ vista, zonas, camas, infoDe, foco, seleccion, encima, atenuacion, pantalla: tamano })
+    const { figuras, sensibles: zonasSensibles } = construirEscena({ vista, zonas, camas, infoDe, foco, seleccion, encima, luzDe, pantalla: tamano })
     sensibles.current = zonasSensibles
     pintar(canvas.getContext('2d'), figuras, paleta, { ancho: tamano.ancho, alto: tamano.alto, dpr, alCargarIcono: () => setIconos((n) => n + 1) })
-  }, [vista, zonas, camas, porCama, foco, seleccion, encima, atenuacion, paleta, tamano, iconos])
+  })
 
   const alPasar = (e) => {
     const s = bajoElPuntero(sensibles.current, ...local(e))

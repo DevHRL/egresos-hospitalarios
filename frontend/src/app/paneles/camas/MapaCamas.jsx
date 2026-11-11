@@ -188,16 +188,6 @@ export function MapaCamas() {
 
   return (
     <div className="panel"><Stack gap={4}>
-      <Grid min={190} gap={3}>
-        <StatCard label="Camas" value={r.total} note={`${r.operativas} operativas`} />
-        <StatCard label="Ocupadas" value={r.ocupadas} />
-        <StatCard label="Disponibles" value={r.disponibles} severity={r.disponibles <= 0 ? 'suspect' : 'normal'} />
-        <StatCard label="Con O2" value={r.conO2} />
-        {r.conVM > 0 && <StatCard label="Con VM" value={r.conVM} />}
-        <StatCard label="Fuera de servicio" value={r.fuera} severity={r.fuera ? 'suspect' : 'normal'} />
-        <StatCard label="Por designar" value={pendientes} note="Enviados por Admisión al departamento" />
-      </Grid>
-      <PorAtender abrir={setDialogo} />
       <Card
         title={servicios.map(nombreServicio).join(' y ')}
         subtitle="Elige una cama en el plano o en la lista: el plano se acerca a ella y abajo aparece su ficha."
@@ -214,6 +204,17 @@ export function MapaCamas() {
       {seleccion
         ? <FichaCama camaId={seleccion} abrir={setDialogo} onCerrar={() => setSeleccion(null)} />
         : <Card title="Ficha de la cama"><EmptyState icon="sh-home" title="Ninguna cama elegida" body="Elige una cama en el plano o en la lista para ver al paciente, el estado de la cama y lo que puedes hacer." /></Card>}
+      {/* Lo demás va debajo: primero lo que espera a esta cuenta, luego las cifras. */}
+      <PorAtender abrir={setDialogo} />
+      <Grid min={190} gap={3}>
+        <StatCard label="Camas" value={r.total} note={`${r.operativas} operativas`} />
+        <StatCard label="Ocupadas" value={r.ocupadas} />
+        <StatCard label="Disponibles" value={r.disponibles} severity={r.disponibles <= 0 ? 'suspect' : 'normal'} />
+        <StatCard label="Con O2" value={r.conO2} />
+        {r.conVM > 0 && <StatCard label="Con VM" value={r.conVM} />}
+        <StatCard label="Fuera de servicio" value={r.fuera} severity={r.fuera ? 'suspect' : 'normal'} />
+        <StatCard label="Por designar" value={pendientes} note="Enviados por Admisión al departamento" />
+      </Grid>
       <TipAislado control={controlTip} />
       {dialogo?.tipo === 'ingreso' && <DialogoIngreso ordenId={dialogo.ordenId} camaId={dialogo.camaId} {...props} />}
       {dialogo?.tipo === 'censoInicial' && <DialogoCensoInicial camaId={dialogo.camaId} {...props} />}
