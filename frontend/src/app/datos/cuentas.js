@@ -6,6 +6,13 @@ export const CLAVE_DEMO = 'demo'
 
 const MEDICINA_B = 'medicina-b'
 const INTERMEDIOS = 'medicina-intermedios'
+const UCI_MEDICINA = 'cuidados-criticos'
+const UCI_CIRUGIA = 'uci-cirugia'
+const UCI_PEDIATRIA = 'uci-pediatria'
+const TODOS = [MEDICINA_B, INTERMEDIOS, UCI_MEDICINA, UCI_CIRUGIA, UCI_PEDIATRIA]
+const MODULOS_PISO = ['recorrido', 'mapa', 'movimientos', 'censo', 'pacientes']
+
+const cuentaUci = (id, nombre, servicio) => ({ id, usuario: id, nombre, rol: 'enfermeria', rolLabel: 'Enfermería de piso', servicios: [servicio], modulos: MODULOS_PISO })
 
 export const CUENTAS = [
   {
@@ -33,15 +40,18 @@ export const CUENTAS = [
     rol: 'enfermeria',
     rolLabel: 'Enfermería de piso',
     servicios: [INTERMEDIOS],
-    modulos: ['recorrido', 'mapa', 'movimientos', 'censo', 'pacientes'],
+    modulos: MODULOS_PISO,
   },
+  cuentaUci('uci.medicina', 'Enfermería UCI Medicina', UCI_MEDICINA),
+  cuentaUci('uci.cirugia', 'Enfermería UCI Cirugía', UCI_CIRUGIA),
+  cuentaUci('uci.pediatria', 'Enfermería UCI Pediatría', UCI_PEDIATRIA),
   {
     id: 'estadistica.tec',
     usuario: 'estadistica.tec',
     nombre: 'Técnicos de Estadística',
     rol: 'tecnico',
     rolLabel: 'Técnico de Estadística',
-    servicios: [MEDICINA_B, INTERMEDIOS],
+    servicios: TODOS,
     modulos: ['recorrido', 'recepcion', 'completado', 'validacion', 'censo', 'pacientes'],
   },
   {
@@ -50,7 +60,7 @@ export const CUENTAS = [
     nombre: 'Responsable de camas',
     rol: 'camas',
     rolLabel: 'Responsable de camas y RENOXI',
-    servicios: [MEDICINA_B, INTERMEDIOS],
+    servicios: TODOS,
     modulos: ['recorrido', 'mapa', 'consolidado', 'renoxi', 'pacientes'],
   },
   {
@@ -59,7 +69,7 @@ export const CUENTAS = [
     nombre: 'Jefatura de Estadística',
     rol: 'jefatura',
     rolLabel: 'Jefatura de Estadística',
-    servicios: [MEDICINA_B, INTERMEDIOS],
+    servicios: TODOS,
     modulos: ['recorrido', 'recepcion', 'validacion', 'censo', 'consolidado', 'indicadores', 'plano', 'pacientes'],
   },
   {
@@ -68,7 +78,7 @@ export const CUENTAS = [
     nombre: 'Mantenimiento',
     rol: 'mantenimiento',
     rolLabel: 'Mantenimiento',
-    servicios: [MEDICINA_B, INTERMEDIOS],
+    servicios: TODOS,
     modulos: ['recorrido', 'mantenimiento'],
   },
   {
@@ -77,7 +87,7 @@ export const CUENTAS = [
     nombre: 'Dirección',
     rol: 'consulta',
     rolLabel: 'Consulta, sin datos de pacientes',
-    servicios: [MEDICINA_B, INTERMEDIOS],
+    servicios: TODOS,
     modulos: ['recorrido', 'tablero'],
   },
   {

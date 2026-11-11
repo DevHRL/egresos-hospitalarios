@@ -1,5 +1,6 @@
 import { Badge, Button, Card, DataTable, LoginScreen, PaginatedTable, Stack } from '@hrl/core-ui'
-import { CLAVE_DEMO, CUENTAS, MODULOS, cuentaPorId, cuentaPorUsuario } from '../../datos/cuentas.js'
+import { CUENTAS, MODULOS, cuentaPorId } from '../../datos/cuentas.js'
+import { iniciarSesion } from '../../datos/tienda.js'
 import { verFechaHora } from '../../dominio/tiempo.js'
 import { nombreServicio, useApp } from '../comun.jsx'
 
@@ -8,11 +9,9 @@ export function Acceso({ onEntrar }) {
     <LoginScreen
       systemName="Egresos Hospitalarios"
       onSubmit={async ({ username, password }) => {
-        const c = cuentaPorUsuario(username.trim())
-        if (!c || password !== CLAVE_DEMO) throw new Error('Usuario o contraseña incorrectos.')
-        onEntrar(c.id)
+        onEntrar(await iniciarSesion(username.trim(), password))
       }}
-      footer={<span>Prototipo con datos ficticios. Cuentas: {CUENTAS.map((c) => c.usuario).join(', ')}. Contraseña: {CLAVE_DEMO}.</span>}
+      footer={<span>Datos ficticios. Cuentas: {CUENTAS.map((c) => c.usuario).join(', ')}.</span>}
     />
   )
 }
@@ -24,6 +23,7 @@ const PASOS = [
   ['Durante la estancia: O2 y cambios de cama.', 'medicina.b', 'mapa', 'Soporte O2, cama nueva'],
   ['Traslado entre servicios: el origen lo envía.', 'medicina.b', 'mapa', 'Servicio de destino'],
   ['El destino confirma la llegada y elige la cama.', 'medicina.int', 'mapa', 'Cama de destino'],
+  ['Si necesita UCI, el piso lo traslada; UCI confirma la cama y registra la ventilación.', 'uci.medicina', 'mapa', 'Cama de UCI, soporte VM'],
   ['Enfermería reporta una cama con falla.', 'medicina.b', 'mapa', 'Descripción de la falla'],
   ['Mantenimiento confirma el retiro, repara y entrega.', 'mantenimiento', 'mantenimiento', 'Reemplazo, diagnóstico, resultado'],
   ['Enfermería recibe la cama: vuelve a estar libre.', 'medicina.b', 'mapa', 'Confirmación de recepción'],

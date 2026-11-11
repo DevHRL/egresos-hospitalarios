@@ -3,9 +3,11 @@ import { Badge, Button, Card, DataTable, Input, PageActions, SegmentedControl, S
 import { ORIGENES, etiqueta, movimientosDe, camaPorId, pacientePorId, serviciosConCamas } from '../../dominio/consultas.js'
 import { verFechaHora } from '../../dominio/tiempo.js'
 import { buscarEnPadron } from '../../datos/admision.js'
+import { GRUPOS_SERVICIO } from '../../datos/catalogo.js'
 import { DialogoAccion, ListaDatos, nombreServicio, opcionesServicio, useApp, useEnvio } from '../comun.jsx'
 
-const PACIENTE_VACIO = { hc: '', dni: '', nombres: '', sexo: '', nacimiento: '' }
+const PACIENTE_VACIO = { hc: '', tipoDocumento: 'dni', dni: '', nombres: '', sexo: '', nacimiento: '', hcMadre: '' }
+const TIPOS_DOCUMENTO = [{ value: 'dni', label: 'DNI' }, { value: 'ce', label: 'Carné de extranjería' }, { value: 'pasaporte', label: 'Pasaporte' }, { value: 'sin_documento', label: 'Sin documento (RN o no identificado)' }]
 
 function DialogoOrden({ onCerrar }) {
   const { estado } = useApp()
@@ -18,6 +20,7 @@ function DialogoOrden({ onCerrar }) {
   const [medicoOrdena, setMedico] = useState('')
   const [diagnosticoIngreso, setDx] = useState('')
   const [enviadaPor, setEnviada] = useState('')
+  const [servicioProcedencia, setProcedencia] = useState('')
   const hallados = buscarEnPadron(estado, busqueda).slice(0, 5)
   const campo = (k) => (e) => setNuevo({ ...nuevo, [k]: e.target.value })
   const paciente = elegido ? { pacienteId: elegido.id } : { paciente: nuevo }
@@ -30,10 +33,11 @@ function DialogoOrden({ onCerrar }) {
       maxWidth={640}
       onCerrar={onCerrar}
       error={error}
-      onConfirmar={() => enviar('orden/registrar', { ...paciente, origen, servicioId, medicoOrdena, diagnosticoIngreso, enviadaPor }, 'Orden enviada. El área ya la ve en su lista de pendientes.')}
+      onConfirmar={() => enviar('orden/registrar', { ...paciente, origen, servicioId, medicoOrdena, diagnosticoIngreso, enviadaPor, servicioProcedencia }, 'Orden enviada. El área ya la ve en su lista de pendientes.')}
     >
       <SegmentedControl label="Por dónde llega" value={origen} options={ORIGENES} onChange={setOrigen} />
       {origen === 'emergencia' && <Input label="Enfermera de Emergencia que envió la orden" required value={enviadaPor} onChange={(e) => setEnviada(e.target.value)} />}
+      {origen === 'otro_servicio' && <Input label="Servicio de procedencia" required kind="select" value={servicioProcedencia} onChange={(e) => setProcedencia(e.target.value)} options={[{ value: '', label: 'Elige…' }]} groups={GRUPOS_SERVICIO} />}
       {elegido ? (
         <Stack gap={2}>
           <ListaDatos datos={[['Paciente', elegido.nombres], ['N° de HC', elegido.hc], ['DNI', elegido.dni]]} />
@@ -51,8 +55,10 @@ function DialogoOrden({ onCerrar }) {
           <p className="texto-apoyo">Si no está en el padrón, escribe sus datos:</p>
           <div className="campos-dos">
             <Input label="N° de HC" value={nuevo.hc} onChange={campo('hc')} />
-            <Input label="DNI" value={nuevo.dni} onChange={campo('dni')} />
+            <Input label="Tipo de documento" kind="select" value={nuevo.tipoDocumento} onChange={campo('tipoDocumento')} options={TIPOS_DOCUMENTO} />
           </div>
+          {nuevo.tipoDocumento !== 'sin_documento' && <Input label="Número de documento" value={nuevo.dni} onChange={campo('dni')} />}
+          {nuevo.tipoDocumento === 'sin_documento' && <Input label="N° de HC de la madre" info="Solo para recién nacidos." value={nuevo.hcMadre} onChange={campo('hcMadre')} />}
           <Input label="Apellidos y nombres" value={nuevo.nombres} onChange={campo('nombres')} />
           <div className="campos-dos">
             <Input label="Sexo" kind="select" value={nuevo.sexo} onChange={campo('sexo')} options={[{ value: '', label: 'Elige…' }, { value: 'F', label: 'Femenino' }, { value: 'M', label: 'Masculino' }]} />

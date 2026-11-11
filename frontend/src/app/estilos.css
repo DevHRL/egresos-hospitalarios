@@ -394,6 +394,40 @@
 
 .plano-codigos { font-family: var(--font-mono); color: var(--foreground); }
 
+/* Escena 3D (editor y mapa de camas): se gira arrastrando y, al enfocar una
+   habitación, el resto se atenúa con suavidad. */
+.escena3d { cursor: grab; touch-action: none; user-select: none; outline: none; }
+.escena3d:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
+.escena3d--arrastrando,
+.escena3d--arrastrando * { cursor: grabbing !important; }
+.escena3d__zona { transition: opacity var(--transition-slow); }
+.escena3d__zona.es-atenuada { opacity: 0.14; }
+.escena3d .plano-zona--habitacion { cursor: pointer; }
+
+.escena3d__controles {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.escena3d__controles > * { pointer-events: auto; }
+.escena3d__ayuda {
+  margin: 0;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+@media (max-width: 640px) { .escena3d__ayuda { display: none; } }
+@media (prefers-reduced-motion: reduce) { .escena3d__zona { transition: none; } }
+
 /* ── Prototipo del flujo ─────────────────────────────────────────────── */
 
 .panel { padding: 0 var(--space-5) var(--space-5); }
@@ -427,13 +461,15 @@
 .mapa-estado--libre { --color-servicio: var(--success); }
 .mapa-estado--ocupada,
 .mapa-estado--ocupada_o2 { --color-servicio: var(--info); }
+.mapa-estado--ocupada_vm { --color-servicio: var(--warning); }
 .mapa-estado--bloqueada { --color-servicio: var(--muted-foreground); }
 .mapa-estado--fuera { --color-servicio: var(--destructive); }
 
 .mapa-cama { cursor: pointer; }
 .mapa-cama__cuerpo { fill: color-mix(in srgb, var(--color-servicio) 26%, var(--surface)); stroke: var(--color-servicio); stroke-width: 1.5; }
 .mapa-estado--ocupada .mapa-cama__cuerpo,
-.mapa-estado--ocupada_o2 .mapa-cama__cuerpo { fill: color-mix(in srgb, var(--color-servicio) 55%, var(--surface)); }
+.mapa-estado--ocupada_o2 .mapa-cama__cuerpo,
+.mapa-estado--ocupada_vm .mapa-cama__cuerpo { fill: color-mix(in srgb, var(--color-servicio) 55%, var(--surface)); }
 .mapa-estado--fuera .mapa-cama__cuerpo,
 .mapa-estado--bloqueada .mapa-cama__cuerpo { stroke-dasharray: 4 3; }
 .mapa-estado--falla .mapa-cama__cuerpo { stroke: var(--warning); stroke-width: 2.5; }

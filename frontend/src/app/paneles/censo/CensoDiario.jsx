@@ -77,7 +77,7 @@ export function CensoDiario() {
     { key: 'mov', label: 'Mov.', width: 62, tooltip: 'I ingreso, T traslado, E egreso.', render: (f) => f.movimiento ?? '' },
     { key: 'relacion', label: 'Origen / destino', width: 110, render: (f) => f.relacion ?? '' },
     { key: 'prestamo', label: 'Cama otro serv.', width: 64, tooltip: 'Queda en el formato. Los préstamos aún no están activos.', render: () => '' },
-    { key: 'soporte', label: 'O2', width: 60, render: (f) => (f.soporte === 'o2' ? 'O2' : f.soporte ? etiqueta(SOPORTES, f.soporte).replace('Sin soporte', '—') : '') },
+    { key: 'soporte', label: 'O2', width: 60, render: (f) => (f.soporte === 'o2' ? 'O2' : f.soporte === 'vm' ? 'VM' : f.soporte ? etiqueta(SOPORTES, f.soporte).replace('Sin soporte', '—') : '') },
     { key: 'egreso', label: 'Tipo de egreso', width: 110, render: (f) => (f.tipoEgreso ? etiquetaEgreso(f.tipoEgreso) : '') },
     { key: 'obs', label: 'Observación', width: 96, render: (f) => (f.vacia ? '' : f.observacion || (escribe ? <Button tone="link" onClick={() => setDialogo({ tipo: 'nota', fila: f })}>Agregar</Button> : '')) },
     { key: 'cie', label: 'CIE-10', group: 'Estadística, desde la HC', width: 74, render: (f) => f.cie10 ?? '' },

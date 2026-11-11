@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
-import { AppShell, Button, Toast } from '@hrl/core-ui'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, AppShell, Button, Toast } from '@hrl/core-ui'
 import { CLAVE_PREFERENCIAS, CLAVE_TEMA } from './tema.js'
 import { MODULOS, cuentaPorId, CUENTAS } from './datos/cuentas.js'
-import { despachar, moverReloj, PLANO_MEDICINA_B, reiniciarDemo, useEstado } from './datos/tienda.js'
+import { cambiarCuenta, cerrarCensosPendientes, cerrarSesion, conectar, despachar, haySesion, moverReloj, reiniciarDemo, useEstado, useSinConexion } from './datos/tienda.js'
 import { ordenesPendientes } from './datos/admision.js'
-import { proximaHora, sumarHoras, verFechaHora } from './dominio/tiempo.js'
-import { ContextoApp } from './paneles/comun.jsx'
+import { mesDe, proximaHora, sumarDias, sumarHoras, verFechaHora } from './dominio/tiempo.js'
+import { ContextoApp, useApp } from './paneles/comun.jsx'
 import { Acceso, CuentasBitacora, Recorrido } from './paneles/prototipo/Prototipo.jsx'
 import { Ordenes } from './paneles/admision/Ordenes.jsx'
 import { MapaCamas } from './paneles/camas/MapaCamas.jsx'
@@ -18,6 +18,11 @@ import { Consolidado, Indicadores, Renoxi, Tablero } from './paneles/reportes/Re
 import { OrdenesCama } from './paneles/mantenimiento/OrdenesCama.jsx'
 import { BuscarPaciente } from './paneles/pacientes/BuscarPaciente.jsx'
 import { EditorPlano } from './paneles/plano/EditorPlano.jsx'
+
+function PanelPlano() {
+  const { estado } = useApp()
+  return <EditorPlano planoInicial={estado.plano} />
+}
 
 const PANELES = {
   recorrido: Recorrido,
@@ -35,7 +40,7 @@ const PANELES = {
   tablero: Tablero,
   cuentas: CuentasBitacora,
   pacientes: BuscarPaciente,
-  plano: () => <EditorPlano planoInicial={PLANO_MEDICINA_B} />,
+  plano: PanelPlano,
 }
 
 /* Lo que espera a cada cuenta, para el contador del menú. */
@@ -57,7 +62,7 @@ const CLAVE_SESION = 'egresos_prototipo_cuenta'
 
 function leerSesion() {
   try {
-    return cuentaPorId(sessionStorage.getItem(CLAVE_SESION))
+    return haySesion() ? cuentaPorId(sessionStorage.getItem(CLAVE_SESION)) : null
   } catch {
     return null
   }
@@ -74,11 +79,25 @@ function guardarSesion(id) {
 
 export default function App() {
   const estado = useEstado()
+  const sinConexion = useSinConexion()
   const [cuenta, setCuenta] = useState(leerSesion)
   const [modulo, setModulo] = useState('recorrido')
   const [toast, setToast] = useState(null)
+  const cuentaId = cuenta?.id ?? null
 
-  const entrar = (id, destino = 'recorrido') => {
+  const salir = () => {
+    cerrarSesion()
+    guardarSesion(null)
+    setCuenta(null)
+  }
+
+  useEffect(() => {
+    if (!cuentaId) return undefined
+    return conectar(salir)
+  }, [cuentaId])
+
+  const entrar = async (id, destino = 'recorrido') => {
+    if (cuenta && cuenta.id !== id) await cambiarCuenta(id)
     guardarSesion(id)
     setCuenta(cuentaPorId(id))
     setModulo(destino)
@@ -88,8 +107,8 @@ export default function App() {
     estado,
     cuenta,
     ir: entrar,
-    hacer: (tipo, datos = {}, aviso) => {
-      const mensaje = despachar({ tipo, cuenta, ...datos })
+    hacer: async (tipo, datos = {}, aviso) => {
+      const mensaje = await despachar({ tipo, ...datos })
       if (mensaje) setToast(mensaje)
       else if (aviso) setToast(aviso)
       return mensaje
@@ -97,6 +116,13 @@ export default function App() {
   }), [estado, cuenta])
 
   if (!cuenta) return <Acceso onEntrar={entrar} />
+  if (!estado) {
+    return (
+      <div className="panel">
+        {sinConexion ? <Alert tone="error" title="Sin conexión con el servidor">{sinConexion} Revisa que la API y la base estén encendidas.</Alert> : <p className="texto-apoyo">Cargando…</p>}
+      </div>
+    )
+  }
 
   const cuentas = pendientes(estado, cuenta)
   const navItems = cuenta.modulos.map((id) => ({ id, label: MODULOS[id].label, icon: MODULOS[id].icono, group: MODULOS[id].grupo, badge: cuentas[id] || undefined }))
@@ -108,13 +134,15 @@ export default function App() {
       <Button size="sm" tone="ghost" onClick={() => moverReloj(sumarHoras(estado.ahora, 1))}>+1 hora</Button>
       <Button size="sm" tone="ghost" onClick={() => moverReloj(proximaHora(estado.ahora, '00:00'))}>Ir a las 00:00</Button>
       <Button size="sm" tone="ghost" onClick={() => moverReloj(proximaHora(estado.ahora, '08:00'))}>Ir a las 08:00</Button>
+      <Button size="sm" tone="ghost" onClick={() => moverReloj(`${sumarDias(`${mesDe(estado.ahora)}-28`, 4).slice(0, 7)}-01T09:00`)}>Ir al mes siguiente</Button>
+      <Button size="sm" tone="ghost" onClick={async () => setToast(`Censos cerrados: ${await cerrarCensosPendientes()}.`)}>Cerrar censos pendientes</Button>
     </>
   )
 
   const accountItems = [
     ...CUENTAS.filter((c) => c.id !== cuenta.id).map((c) => ({ id: c.id, label: `Entrar como ${c.nombre}`, icon: 'sh-profile', onSelect: () => entrar(c.id) })),
     { id: 'sep', separator: true },
-    { id: 'reiniciar', label: 'Reiniciar demostración', icon: 'sh-swap', tone: 'danger', onSelect: () => { reiniciarDemo(); setToast('Demostración reiniciada.') } },
+    ...(estado.modoDemo ? [{ id: 'reiniciar', label: 'Reiniciar demostración', icon: 'sh-swap', tone: 'danger', onSelect: async () => { await reiniciarDemo(); setToast('Demostración reiniciada.') } }] : []),
   ]
 
   return (
@@ -130,8 +158,8 @@ export default function App() {
         preferencesKey={CLAVE_PREFERENCIAS}
         user={{ name: cuenta.nombre, role: cuenta.rolLabel }}
         accountItems={accountItems}
-        onSignOut={() => { guardarSesion(null); setCuenta(null) }}
-        banner={{ status: { icon: 'sh-clock', label: 'Hora de la demostración', detail: verFechaHora(estado.ahora), tone: 'info' }, actions: relojDemo }}
+        onSignOut={salir}
+        banner={estado.modoDemo ? { status: { icon: 'sh-clock', label: 'Hora de la demostración', detail: verFechaHora(estado.ahora), tone: 'info' }, actions: relojDemo } : undefined}
       >
         <Panel />
       </AppShell>

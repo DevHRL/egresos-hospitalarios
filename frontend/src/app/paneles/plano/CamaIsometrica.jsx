@@ -1,7 +1,8 @@
 /* Cama hospitalaria en isométrico: patas, bastidor, colchón, frazada (con el
    color del servicio), almohada, cabecera, piecera y barandas. Cada pieza es
-   una caja proyectada; se dibujan de atrás hacia adelante según hacia dónde
-   mire la cabecera, sin ordenar polígono por polígono.
+   una caja proyectada con la cámara de `camara3d.js`; se dibujan de atrás
+   hacia adelante según hacia dónde quede la cabecera respecto de quien mira,
+   sin ordenar polígono por polígono.
 
    Alturas en metros desde el piso, aproximadas a una cama clínica. */
 
@@ -29,35 +30,43 @@ function marco(r, rotacion) {
   return { L, W, aMundo }
 }
 
-/* Caja con sus tres caras visibles (arriba, la que mira a +x y la que mira
-   a +y), a partir de un rango en coordenadas de la cama. */
-function caja(aMundo, s0, s1, t0, t1, z0, z1) {
+/* Caja con su tapa y las caras laterales que miran a la cámara, a partir de
+   un rango en coordenadas de la cama. La sombra de cada cara depende del eje
+   de su normal: así la luz queda fija en el piso aunque se gire la vista. */
+function caja(vista, aMundo, s0, s1, t0, t1, z0, z1) {
   const esquinas = [aMundo(s0, t0), aMundo(s1, t1)]
   const x0 = Math.min(esquinas[0][0], esquinas[1][0])
   const x1 = Math.max(esquinas[0][0], esquinas[1][0])
   const y0 = Math.min(esquinas[0][1], esquinas[1][1])
   const y1 = Math.max(esquinas[0][1], esquinas[1][1])
+  const lados = [
+    { normal: [1, 0], cara: 'lado', puntos: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
+    { normal: [-1, 0], cara: 'lado', puntos: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]] },
+    { normal: [0, 1], cara: 'frente', puntos: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]] },
+    { normal: [0, -1], cara: 'frente', puntos: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]] },
+  ]
   return {
-    profundidad: (x0 + x1) / 2 + (y0 + y1) / 2,
+    profundidad: vista.profundidad((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2),
     tapa: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
-    lado: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
-    frente: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]],
+    lados: lados.filter((l) => vista.mira(...l.normal)),
   }
 }
 
 function Pieza({ pieza, clase, poligono, sinLados = false }) {
   return (
     <>
-      {!sinLados && <polygon className={`${clase} plano-cama3d__cara--lado`} points={poligono(pieza.lado)} />}
-      {!sinLados && <polygon className={`${clase} plano-cama3d__cara--frente`} points={poligono(pieza.frente)} />}
+      {!sinLados && pieza.lados.map((l) => (
+        <polygon key={l.normal.join(',')} className={`${clase} plano-cama3d__cara--${l.cara}`} points={poligono(l.puntos)} />
+      ))}
       <polygon className={`${clase} plano-cama3d__cara--tapa`} points={poligono(pieza.tapa)} />
     </>
   )
 }
 
-export function CamaIsometrica({ r, rotacion, poligono, fuera }) {
+export function CamaIsometrica({ r, rotacion, vista, fuera }) {
   const { L, W, aMundo } = marco(r, rotacion)
-  const c = (...a) => caja(aMundo, ...a)
+  const c = (...a) => caja(vista, aMundo, ...a)
+  const { poligono } = vista
 
   const patas = [
     [PATA.margen, PATA.margen],
@@ -79,8 +88,7 @@ export function CamaIsometrica({ r, rotacion, poligono, fuera }) {
     c(L * 0.22, L * 0.6, W - BARANDA.grosor, W, BARANDA.desde, BARANDA.hasta),
   ].sort((a, b) => a.profundidad - b.profundidad)
 
-  /* La cabecera queda detrás si mira a la pared de arriba o a la izquierda
-     (las que el isométrico pone al fondo). */
+  /* Lo que queda más lejos de la cámara se dibuja antes. */
   const cabeceraAtras = cabecera.profundidad < piecera.profundidad
   const [fondo, delante] = cabeceraAtras ? [cabecera, piecera] : [piecera, cabecera]
   const claseFondo = cabeceraAtras ? 'plano-cama3d__cabecera' : 'plano-cama3d__piecera'

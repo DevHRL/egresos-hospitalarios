@@ -16,8 +16,8 @@ export function Recepcion() {
   const servicios = serviciosConCamas(estado)
   const filas = servicios.map((servicioId) => ({ servicioId, c: cuadreCenso(estado, servicioId, dia), est: estadoCenso(estado, servicioId, dia), r: registroCenso(estado, servicioId, dia) }))
   const conHC = estado.hospitalizaciones.filter((h) => !h.anulada && h.egreso?.hc).sort((a, b) => (a.egreso.fechaHora < b.egreso.fechaHora ? 1 : -1))
-  const recibir = () => {
-    const mensaje = hacer('hc/recibir', { hc }, `HC ${hc} recibida.`)
+  const recibir = async () => {
+    const mensaje = await hacer('hc/recibir', { hc }, `HC ${hc} recibida.`)
     setError(mensaje)
     if (!mensaje) setHc('')
   }

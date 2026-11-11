@@ -2,11 +2,14 @@
 
 | | |
 |---|---|
-| **Estado** | Por hacer |
+| **Estado** | Implementada en `backend/`. Falta la migración de Aletheia |
 | **Rama base** | `prototype` |
-| **Resultado** | Migraciones, semillas y pruebas de la base en `backend/` |
+| **Resultado** | Migraciones, semillas, API y pruebas en `backend/`; frontend conectado |
 | **Motor** | PostgreSQL 16 |
-| **Depende de** | Nada: se puede empezar hoy con datos ficticios |
+
+> Las decisiones del 2026-11-09 cambiaron parte de lo que sigue. Donde difieran,
+> manda la [sección 14](#14-cambios-del-2026-11-09), y el esquema real está en
+> `backend/migraciones/sql/`.
 
 ## 1. Objetivo
 
@@ -691,3 +694,48 @@ Se implementa el supuesto indicado y se ajusta cuando haya respuesta.
 8. Dotación, periodo, indicadores y RENOXI.
 9. Auditoría, bitácora y roles.
 10. Carga de la demostración y comparación con las tablas de la sección 11.
+
+## 14. Cambios del 2026-11-09
+
+**Alcance.** Entran también la API FastAPI (`backend/app/`) y la conexión del
+frontend (`datos/tienda.js`), para probar el flujo desde la interfaz. FastAPI y
+uvicorn se suman a las dependencias permitidas, como fija la decisión 0001. La base
+corre en el puerto 5544.
+
+**Decisiones**
+
+| Tema | Decisión |
+|---|---|
+| UCI | Incorporada: UCI Medicina (`cuidados-criticos`), UCI Cirugía y UCI Pediatría, con traslado normal y soporte VM. Su plano es provisional, con las cifras del catálogo, hasta tener el mapeo físico |
+| Ingreso | Admisión valida la orden; el servicio designa la cama y con eso se confirma el ingreso |
+| Admisión (Galeno) | `paciente` y `orden_hospitalizacion` llevan `id_externo`, para recibir sus datos sin cambiar el modelo |
+| Corrección tras cerrar el mes | Las cifras quedan fijas en `indicador_mes_cerrado`; las correcciones van en `ajuste_periodo` y se muestran aparte |
+| Préstamos | Estructura lista, apagados con el parámetro `prestamos_habilitados`. La vista marca `prestada` cuando el servicio que atiende no es el dueño de la cama |
+| Sin fecha real en el censo inicial | Fecha provisional justo antes del arranque, con `fecha_ingreso_estimada`. Sale del promedio de permanencia (F) y sigue contando en E |
+
+**Agregado al modelo**
+
+- `servicio.fecha_arranque`; nulo significa que aún no está incorporado.
+- `cama.activa`, `zona.activo` y `piso.activo`: lo que sale del plano es baja lógica.
+- `paciente`: `id_externo`, `madre_id`, `fusionado_en_id`, origen `galeno`, y
+  `fecha_nacimiento` opcional solo con `sin_documento`.
+- `orden_hospitalizacion`: orígenes `referencia` y `otro_servicio`,
+  `servicio_procedencia_id` e `id_externo`. Quien viene de otro servicio cuenta como
+  traslado entrante.
+- `hospitalizacion`: origen `previo_sistema` y `fecha_ingreso_estimada`.
+- `egreso.alta_medica_en` y `traslado.estado = 'anulado'`.
+- `dotacion_version.oficial`.
+- Tablas `correccion_movimiento`, `indicador_mes_cerrado`, `ajuste_periodo` y
+  `conteo_unidad_diario` (Trauma Shock; aún sin pantalla).
+
+**Reglas**
+
+- `v_estado_cama` admite `ocupada_vm`, y RENOXI cuenta `con_vm`.
+- Censo y RENOXI de días pasados usan el estado de la cama **de ese día**.
+- Corregir la fecha de ingreso a otro día exige reabrir antes los censos afectados.
+- Una cama de baja sin reemplazo sigue fuera de servicio hasta que Mantenimiento
+  entrega otra cama física y enfermería la recibe.
+
+**Cifras que cambian en la sección 11.** Maestros: 2 pisos, 40 zonas, 45 camas, 45
+activos y 13 cuentas. Indicadores 2026-11, fila Total: A 45, H 0,02. El resto de esa
+sección se mantiene.

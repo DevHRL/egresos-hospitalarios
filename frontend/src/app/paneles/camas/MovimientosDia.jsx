@@ -9,7 +9,7 @@ const TIPOS = { ingreso: 'Ingreso', traslado: 'Traslado', soporte: 'Soporte', eg
 function detalle(estado, m) {
   const cama = camaPorId(estado, m.camaId)?.codigo
   if (m.tipo === 'traslado') return m.servicioOrigen === m.servicioId ? `De ${camaPorId(estado, m.camaOrigen)?.codigo} a ${cama}` : `${nombreServicio(m.servicioOrigen)} a ${nombreServicio(m.servicioId)}, cama ${cama}`
-  if (m.tipo === 'soporte') return m.soporte === 'o2' ? `Inicio de O2, cama ${cama}` : `Retiro de O2, cama ${cama}`
+  if (m.tipo === 'soporte') return m.soporte === 'o2' ? `Inicio de O2, cama ${cama}` : m.soporte === 'vm' ? `Inicio de VM, cama ${cama}` : `Retiro de soporte, cama ${cama}`
   if (m.tipo === 'egreso') return `${etiquetaEgreso(m.tipoEgreso)}, cama ${cama}`
   return `Cama ${cama}`
 }

@@ -5,6 +5,7 @@ import { PASO, TIPOS_ZONA, duplicar, huella, planoVacio, posicionDentro, validar
 import { TIPOS_CAMA, medidasHabitacion, varianteInicial, variantesPara } from '../../dominio/estandar.js'
 import { GRUPOS_SERVICIO, servicioExiste, servicioPorId } from '../../datos/catalogo.js'
 import { abrirArchivo, exportarCSV, guardarArchivo, guardarBorrador, leerBorrador } from '../../datos/almacen.js'
+import { publicarPlano } from '../../datos/tienda.js'
 import { useHistorial } from './useHistorial.js'
 import { Lienzo } from './Lienzo.jsx'
 import { VistaIsometrica } from './VistaIsometrica.jsx'
@@ -280,6 +281,15 @@ export function EditorPlano({ planoInicial = null }) {
     },
     [plano, archivo, version],
   )
+
+  const publicar = async () => {
+    try {
+      const r = await publicarPlano(plano)
+      setToast(`Plano publicado: ${r.camas} camas, ${r.nuevas} nuevas, ${r.bajas} dadas de baja.`)
+    } catch (e) {
+      setToast(e.message)
+    }
+  }
 
   const cargarPlano = (nuevo, datosArchivo) => {
     historial.cargar(nuevo)
@@ -604,7 +614,8 @@ export function EditorPlano({ planoInicial = null }) {
     <div className="plano-editor" ref={ref} style={{ ...variablesCss, height: alto }}>
       <PageActions>
         {menuArchivo}
-        <Button icon="sh-ok" onClick={() => guardar(false)}>Guardar</Button>
+        <Button tone="ghost" icon="sh-ok" onClick={() => guardar(false)}>Guardar archivo</Button>
+        <Button icon="sh-send" onClick={publicar}>Publicar en el sistema</Button>
       </PageActions>
 
       {/* En pantalla completa el escenario se monta en document.body: el

@@ -27,11 +27,14 @@ export const CONDICIONES_EGRESO = [
 export const ORIGENES = [
   { value: 'consulta_externa', label: 'Consulta externa' },
   { value: 'emergencia', label: 'Emergencia' },
+  { value: 'referencia', label: 'Referencia' },
+  { value: 'otro_servicio', label: 'Otro servicio' },
 ]
 
 export const SOPORTES = [
   { value: 'ninguno', label: 'Sin soporte' },
   { value: 'o2', label: 'Con O2' },
+  { value: 'vm', label: 'Ventilación mecánica' },
 ]
 
 export const ESTADOS_EGRESO = {
@@ -63,7 +66,8 @@ export const esEgresoHospitalario = (tipo) => tipo !== TRASLADO_NO_INCORPORADO
 
 const porHora = (a, b) => (a.fechaHora === b.fechaHora ? a.seq - b.seq : a.fechaHora < b.fechaHora ? -1 : 1)
 
-export const camaPorId = (e, id) => e.camas.find((c) => c.id === id)
+/* Una cama dada de baja ya no está en el plano, pero la historia la sigue nombrando. */
+export const camaPorId = (e, id) => e.camas.find((c) => c.id === id) ?? e.camasDeBaja?.find((c) => c.id === id)
 export const pacientePorId = (e, id) => e.pacientes.find((p) => p.id === id)
 export const hospitalizacionPorId = (e, id) => e.hospitalizaciones.find((h) => h.id === id)
 export const serviciosConCamas = (e) => [...new Set(e.camas.map((c) => c.servicioId))]
@@ -122,7 +126,7 @@ export function estadoCama(e, cama, ocupacion = ocupantes(e, hasta(e.ahora))) {
   const orden = ordenCamaActiva(e, cama.id)
   const base = { cama, ocupante, orden, falla: orden?.estado === 'pendiente_retiro', trasladoPendiente: ocupante ? trasladoPendienteDe(e, ocupante.hospitalizacion.id) : null }
   if (cama.fueraDeServicio) return { ...base, estado: 'fuera' }
-  if (ocupante) return { ...base, estado: ocupante.soporte === 'o2' ? 'ocupada_o2' : 'ocupada' }
+  if (ocupante) return { ...base, estado: ocupante.soporte === 'vm' ? 'ocupada_vm' : ocupante.soporte === 'o2' ? 'ocupada_o2' : 'ocupada' }
   if (cama.bloqueo) return { ...base, estado: 'bloqueada' }
   return { ...base, estado: 'libre' }
 }
@@ -131,6 +135,7 @@ export const ESTADOS_CAMA_MAPA = {
   libre: { label: 'Libre', icono: 'sh-check', tono: 'ok' },
   ocupada: { label: 'Ocupada', icono: 'sh-profile', tono: 'info' },
   ocupada_o2: { label: 'Ocupada con O2', icono: 'sh-drop', tono: 'info' },
+  ocupada_vm: { label: 'Ocupada con VM', icono: 'sh-drop', tono: 'warn' },
   bloqueada: { label: 'Bloqueada', icono: 'sh-shield', tono: 'none' },
   fuera: { label: 'Fuera de servicio', icono: 'sh-wrench', tono: 'crit' },
 }
@@ -144,8 +149,8 @@ export function resumenCamas(e, servicios) {
   const lista = estadosDeCamas(e, servicios)
   const cuenta = (...estados) => lista.filter((x) => estados.includes(x.estado)).length
   const operativas = lista.length - cuenta('fuera') - cuenta('bloqueada')
-  const ocupadas = cuenta('ocupada', 'ocupada_o2')
-  return { total: lista.length, operativas, ocupadas, disponibles: operativas - ocupadas, conO2: cuenta('ocupada_o2'), fuera: cuenta('fuera'), bloqueadas: cuenta('bloqueada') }
+  const ocupadas = cuenta('ocupada', 'ocupada_o2', 'ocupada_vm')
+  return { total: lista.length, operativas, ocupadas, disponibles: operativas - ocupadas, conO2: cuenta('ocupada_o2'), conVM: cuenta('ocupada_vm'), fuera: cuenta('fuera'), bloqueadas: cuenta('bloqueada') }
 }
 
 /* ── Censo diario ──────────────────────────────────────────────────────── */
@@ -189,7 +194,12 @@ export function cuadreCenso(e, servicioId, dia) {
     let salio = false
     for (const m of movimientosDe(e, h.id)) {
       if (m.fechaHora < inicio || m.fechaHora >= corte) continue
-      if (m.tipo === 'ingreso' && m.servicioId === servicioId) { c.ingresos++; entro = true }
+      if (m.tipo === 'ingreso' && m.servicioId === servicioId) {
+        /* Quien llega de un servicio aún no incorporado no entra al hospital: viene de otro servicio. */
+        if (h.origen === 'otro_servicio') c.trasladosEntran++
+        else c.ingresos++
+        entro = true
+      }
       if (m.tipo === 'traslado' && m.servicioOrigen !== m.servicioId) {
         if (m.servicioId === servicioId) { c.trasladosEntran++; entro = true }
         if (m.servicioOrigen === servicioId) { c.trasladosSalen++; salio = true }
@@ -209,6 +219,19 @@ export function cuadreCenso(e, servicioId, dia) {
 }
 
 const letra = { ingreso: 'I', traslado: 'T', egreso: 'E' }
+
+/* Si la cama estaba fuera o bloqueada en ese instante, no ahora: un día pasado se
+   imprime igual aunque la cama ya haya vuelto. */
+function camaFueraAl(e, cama, limite) {
+  const ordenes = e.ordenesCama.filter((o) => o.camaId === cama.id)
+  if (ordenes.length === 0) return cama.fueraDeServicio
+  return ordenes.some((o) => o.conReemplazo === false && o.retiradaEn && o.retiradaEn < limite && (!o.recibidaEn || o.recibidaEn >= limite))
+}
+
+function camaBloqueadaAl(e, cama, limite) {
+  if (!e.bloqueos) return Boolean(cama.bloqueo)
+  return e.bloqueos.some((b) => b.camaId === cama.id && b.desde < limite && (!b.hasta || b.hasta >= limite))
+}
 
 /* Las filas del censo: una por cada cama del servicio, en orden, y una por
    cada paciente que pasó por el servicio ese día y ya no está al corte. */
@@ -253,7 +276,7 @@ export function filasCenso(e, servicioId, dia, nombre = (id) => id) {
   for (const cama of camas) {
     const lista = (ocupacion.get(cama.id) ?? []).filter((o) => o.servicioId === servicioId)
     if (lista.length === 0) {
-      filas.push({ clave: cama.id, camaId: cama.id, camaCodigo: cama.codigo, vacia: true, estadoCama: cama.fueraDeServicio ? 'fuera' : cama.bloqueo ? 'bloqueada' : 'libre' })
+      filas.push({ clave: cama.id, camaId: cama.id, camaCodigo: cama.codigo, vacia: true, estadoCama: camaFueraAl(e, cama, corte) ? 'fuera' : camaBloqueadaAl(e, cama, corte) ? 'bloqueada' : 'libre' })
     }
     for (const o of lista) {
       vistos.add(o.hospitalizacion.id)
@@ -310,22 +333,27 @@ export function renoxiDelDia(e, dia) {
   return serviciosConCamas(e).map((servicioId) => {
     const camas = e.camas.filter((c) => c.servicioId === servicioId)
     let conO2 = 0
+    let conVM = 0
     let sinO2 = 0
     for (const lista of ocupacion.values()) {
       for (const o of lista) {
         if (o.servicioId !== servicioId) continue
         if (o.soporte === 'o2') conO2++
+        else if (o.soporte === 'vm') conVM++
         else sinO2++
       }
     }
-    const operativas = camas.filter((c) => !c.fueraDeServicio && !c.bloqueo).length
-    return { servicioId, camas: camas.length, operativas, sinO2, conO2, ocupadas: sinO2 + conO2, disponibles: operativas - sinO2 - conO2 }
+    const operativas = camas.filter((c) => !camaFueraAl(e, c, corte) && !camaBloqueadaAl(e, c, corte)).length
+    const ocupadas = sinO2 + conO2 + conVM
+    return { servicioId, camas: camas.length, operativas, sinO2, conO2, conVM, ocupadas, disponibles: operativas - ocupadas }
   })
 }
 
-export function diasDesdeArranque(e, mes) {
+export const arranqueDe = (e, servicioId) => e.arranques?.[servicioId] ?? e.arranque
+
+export function diasDesdeArranque(e, mes, servicioId) {
   const dias = []
-  for (let d = e.arranque; d < diaDe(e.ahora) && mesDe(d) <= mes; d = sumarDias(d, 1)) {
+  for (let d = arranqueDe(e, servicioId); d < diaDe(e.ahora) && mesDe(d) <= mes; d = sumarDias(d, 1)) {
     if (mesDe(d) === mes) dias.push(d)
   }
   return dias
@@ -337,20 +365,27 @@ export function diasDesdeArranque(e, mes) {
 export function indicadoresDelMes(e, mes) {
   const filas = serviciosConCamas(e).map((servicioId) => {
     const A = e.camas.filter((c) => c.servicioId === servicioId).length
-    const dias = diasDesdeArranque(e, mes).filter((d) => registroCenso(e, servicioId, d)?.estado === 'cerrado')
+    const dias = diasDesdeArranque(e, mes, servicioId).filter((d) => registroCenso(e, servicioId, d)?.estado === 'cerrado')
     const B = dias.reduce((s, d) => s + cuadreCenso(e, servicioId, d).pacientesDia, 0)
     const egresos = vigentes(e).filter((h) => h.egreso && esEgresoHospitalario(h.egreso.tipo) && mesDe(h.egreso.fechaHora) === mes && ['validado', 'cerrado'].includes(h.egreso.estado) && h.egreso.servicioId === servicioId)
     const C = egresos.reduce((s, h) => s + estancia(h.fechaIngreso, h.egreso.fechaHora), 0)
-    return calcular({ servicioId, A, B, C, D: A * dias.length, E: egresos.length, diasConCenso: dias.length })
+    /* El promedio de permanencia deja fuera a quien no tiene fecha real de ingreso. */
+    const conFecha = egresos.filter((h) => !h.fechaIngresoEstimada)
+    const Cf = conFecha.reduce((s, h) => s + estancia(h.fechaIngreso, h.egreso.fechaHora), 0)
+    return calcular({ servicioId, A, B, C, D: A * dias.length, E: egresos.length, Cf, Ef: conFecha.length, diasConCenso: dias.length })
   })
+  return { filas, total: totalIndicadores(filas), diasDelMes: diasDelMes(mes) }
+}
+
+export function totalIndicadores(filas) {
   const suma = (k) => filas.reduce((s, f) => s + f[k], 0)
-  return { filas, total: calcular({ servicioId: 'total', A: suma('A'), B: suma('B'), C: suma('C'), D: suma('D'), E: suma('E'), diasConCenso: Math.max(0, ...filas.map((f) => f.diasConCenso)) }), diasDelMes: diasDelMes(mes) }
+  return calcular({ servicioId: 'total', A: suma('A'), B: suma('B'), C: suma('C'), D: suma('D'), E: suma('E'), Cf: suma('Cf'), Ef: suma('Ef'), diasConCenso: Math.max(0, ...filas.map((f) => f.diasConCenso)) })
 }
 
 function calcular(f) {
   return {
     ...f,
-    F: f.E ? f.C / f.E : null,
+    F: f.Ef ? f.Cf / f.Ef : null,
     G: f.D ? (f.B * 100) / f.D : null,
     H: f.A ? f.E / f.A : null,
     I: f.E ? (f.D - f.B) / f.E : null,
@@ -362,7 +397,7 @@ function calcular(f) {
 export function validarCie(codigo, paciente, fecha) {
   const anios = +fecha.slice(0, 4) - +paciente.nacimiento.slice(0, 4)
   if (codigo.startsWith('O') && paciente.sexo !== 'F') return 'El código obstétrico no corresponde al sexo del paciente.'
-  if (codigo.startsWith('P') && anios > 1) return 'El código perinatal no corresponde a la edad del paciente.'
+  if (codigo.startsWith('P') && paciente.nacimiento && anios > 1) return 'El código perinatal no corresponde a la edad del paciente.'
   return null
 }
 
@@ -394,7 +429,7 @@ export function inconsistencias(e, nombre = (id) => id) {
     }
   }
   for (const servicioId of serviciosConCamas(e)) {
-    for (let d = e.arranque; d < diaDe(e.ahora); d = sumarDias(d, 1)) {
+    for (let d = arranqueDe(e, servicioId); d < diaDe(e.ahora); d = sumarDias(d, 1)) {
       if (estadoCenso(e, servicioId, d).valor === 'sin_cerrar') agregar(`s-${servicioId}-${d}`, 'Censo sin cerrar', `${nombre(servicioId)}, ${d}.`, 'crit')
       const r = registroCenso(e, servicioId, d)
       if (r?.estado === 'cerrado' && r.observacion) agregar(`b-${servicioId}-${d}`, 'Censo con observación', `${nombre(servicioId)}, ${d}: ${r.observacion}`)

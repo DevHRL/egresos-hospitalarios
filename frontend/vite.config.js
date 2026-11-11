@@ -7,4 +7,7 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  /* La API corre aparte en desarrollo; así el navegador la ve en el mismo origen. */
+  server: { proxy: { '/api': 'http://127.0.0.1:8010' } },
+  preview: { proxy: { '/api': 'http://127.0.0.1:8010' } },
 })

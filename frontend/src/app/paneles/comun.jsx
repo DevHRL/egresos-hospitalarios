@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useRef, useState } from 'react'
 import { Alert, Button, Dialog, Input, Stack } from '@hrl/core-ui'
 import { servicioPorId } from '../datos/catalogo.js'
 import { diaDe, sumarDias } from '../dominio/tiempo.js'
@@ -20,10 +20,17 @@ export const diaOperativo = (ahora) => (ahora.slice(11) < '08:00' ? sumarDias(di
 export function useEnvio(onCerrar) {
   const { hacer } = useApp()
   const [error, setError] = useState(null)
-  const enviar = (tipo, datos, aviso) => {
-    const mensaje = hacer(tipo, datos, aviso)
-    if (mensaje) setError(mensaje)
-    else onCerrar?.()
+  const enviando = useRef(false)
+  const enviar = async (tipo, datos, aviso) => {
+    if (enviando.current) return
+    enviando.current = true
+    try {
+      const mensaje = await hacer(tipo, datos, aviso)
+      if (mensaje) setError(mensaje)
+      else onCerrar?.()
+    } finally {
+      enviando.current = false
+    }
   }
   return { error, enviar }
 }

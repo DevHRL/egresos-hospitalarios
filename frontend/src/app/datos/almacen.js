@@ -13,7 +13,7 @@ import { VERSION_FORMATO, migrar } from '../dominio/plano.js'
 const BASE = 'egresos-plano'
 const ALMACEN = 'borradores'
 /* Con el sufijo se ignoran los borradores de planos anteriores a la corrección. */
-const CLAVE = 'actual-v2'
+const CLAVE = 'actual-v3'
 
 function abrirBase() {
   return new Promise((resolve, reject) => {

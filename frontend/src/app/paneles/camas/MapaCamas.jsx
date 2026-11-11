@@ -3,10 +3,9 @@ import { Badge, Button, Card, DataTable, FloatingTip, Grid, Icon, SegmentedContr
 import { ESTADOS_CAMA_MAPA, ESTADOS_ORDEN_CAMA, ORIGENES, estadosDeCamas, etiqueta, hospitalizacionPorId, pacientePorId, resumenCamas } from '../../dominio/consultas.js'
 import { edad, estancia, verFechaHora } from '../../dominio/tiempo.js'
 import { ordenesPendientes } from '../../datos/admision.js'
-import { PLANO_MEDICINA_B } from '../../datos/tienda.js'
 import { nombreServicio, useApp } from '../comun.jsx'
 import { VistaMapa } from './VistaMapa.jsx'
-import { DialogoBloqueo, DialogoCama, DialogoConfirmarTraslado, DialogoEgreso, DialogoFalla, DialogoIngreso, DialogoSoporte, DialogoTraslado } from './Dialogos.jsx'
+import { DialogoBloqueo, DialogoCama, DialogoCensoInicial, DialogoConfirmarTraslado, DialogoEgreso, DialogoFalla, DialogoIngreso, DialogoSoporte, DialogoTraslado } from './Dialogos.jsx'
 
 const VISTAS = [
   { value: 'iso', label: 'Isométrica' },
@@ -20,7 +19,7 @@ function textoHover(estado, info) {
   if (info.ocupante) {
     const h = info.ocupante.hospitalizacion
     const p = pacientePorId(estado, h.pacienteId)
-    return { titulo, cuerpo: `${p.nombres} · HC ${p.hc} · ${edad(p.nacimiento, estado.ahora)} años · ${estancia(h.fechaIngreso, estado.ahora)} días${info.ocupante.soporte === 'o2' ? ' · O2' : ''}` }
+    return { titulo, cuerpo: `${p.nombres} · HC ${p.hc} · ${edad(p.nacimiento, estado.ahora)} años · ${estancia(h.fechaIngreso, estado.ahora)} días${info.ocupante.soporte === 'o2' ? ' · O2' : info.ocupante.soporte === 'vm' ? ' · VM' : ''}` }
   }
   if (info.orden) return { titulo, cuerpo: `${ESTADOS_ORDEN_CAMA[info.orden.estado]}: ${info.orden.falla}` }
   if (info.cama.bloqueo) return { titulo, cuerpo: info.cama.bloqueo.motivo }
@@ -116,6 +115,7 @@ export function MapaCamas() {
         <StatCard label="Ocupadas" value={r.ocupadas} />
         <StatCard label="Disponibles" value={r.disponibles} severity={r.disponibles <= 0 ? 'suspect' : 'normal'} />
         <StatCard label="Con O2" value={r.conO2} />
+        {r.conVM > 0 && <StatCard label="Con VM" value={r.conVM} />}
         <StatCard label="Fuera de servicio" value={r.fuera} severity={r.fuera ? 'suspect' : 'normal'} />
         <StatCard label="Por recibir" value={pendientes} note="Enviados por Admisión" />
       </Grid>
@@ -127,7 +127,7 @@ export function MapaCamas() {
         <Stack gap={3}>
           {vista === 'tarjetas'
             ? <Tarjetas estados={estados} onSeleccionar={seleccionar} />
-            : <VistaMapa plano={PLANO_MEDICINA_B} estados={estados} servicios={servicios} vista={vista} seleccion={seleccion} onSeleccionar={seleccionar} tip={tip} texto={(info) => textoHover(estado, info)} />}
+            : <VistaMapa plano={estado.plano} estados={estados} servicios={servicios} vista={vista} seleccion={seleccion} onSeleccionar={seleccionar} tip={tip} texto={(info) => textoHover(estado, info)} />}
           <Leyenda />
         </Stack>
       </Card>
@@ -135,6 +135,7 @@ export function MapaCamas() {
       <FloatingTip tip={tip.tip} />
       {dialogo?.tipo === 'cama' && <DialogoCama camaId={dialogo.camaId} onCerrar={cerrar} abrir={setDialogo} />}
       {dialogo?.tipo === 'ingreso' && <DialogoIngreso ordenId={dialogo.ordenId} camaId={dialogo.camaId} {...props} />}
+      {dialogo?.tipo === 'censoInicial' && <DialogoCensoInicial camaId={dialogo.camaId} {...props} />}
       {dialogo?.tipo === 'traslado' && <DialogoTraslado hospitalizacionId={dialogo.hospitalizacionId} {...props} />}
       {dialogo?.tipo === 'confirmarTraslado' && <DialogoConfirmarTraslado trasladoId={dialogo.trasladoId} {...props} />}
       {dialogo?.tipo === 'soporte' && <DialogoSoporte hospitalizacionId={dialogo.hospitalizacionId} {...props} />}

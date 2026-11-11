@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Card, DataTable, Input, Stack } from '@hrl/core-u
 import { ESTADOS_EGRESO, ESTADOS_HC, etiquetaEgreso, pacientePorId } from '../../dominio/consultas.js'
 import { diasEntre, verFechaHora } from '../../dominio/tiempo.js'
 import { CIE10, MEDICOS } from '../../datos/clinicos.js'
-import { DialogoAccion, ListaDatos, nombreServicio, useApp, useEnvio } from '../comun.jsx'
+import { CampoFechaHora, DialogoAccion, ListaDatos, nombreServicio, useApp, useEnvio } from '../comun.jsx'
 
 function DialogoCompletar({ hospitalizacion: h, onCerrar }) {
   const { estado } = useApp()
@@ -29,11 +29,25 @@ function DialogoCompletar({ hospitalizacion: h, onCerrar }) {
   )
 }
 
+/* Si la HC dice otra fecha de ingreso, se corrige con motivo y queda auditado. */
+function DialogoCorregirIngreso({ hospitalizacion: h, onCerrar }) {
+  const { error, enviar } = useEnvio(onCerrar)
+  const [fechaHora, setFechaHora] = useState(h.fechaIngreso)
+  const [motivo, setMotivo] = useState('')
+  return (
+    <DialogoAccion titulo="Corregir fecha de ingreso" subtitulo={`Registrada: ${verFechaHora(h.fechaIngreso)}`} textoConfirmar="Corregir" onCerrar={onCerrar} error={error} onConfirmar={() => enviar('ingreso/corregir', { hospitalizacionId: h.id, fechaHora, motivo }, 'Fecha de ingreso corregida.')}>
+      <CampoFechaHora etiqueta="Fecha según la HC" value={fechaHora} onChange={setFechaHora} />
+      <Input label="Motivo" required value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+    </DialogoAccion>
+  )
+}
+
 const tonoAtraso = (d) => (d > 5 ? 'crit' : d >= 2 ? 'warn' : 'ok')
 
 export function Completado() {
   const { estado } = useApp()
   const [abierto, setAbierto] = useState(null)
+  const [corregir, setCorregir] = useState(null)
   const [hc, setHc] = useState('')
   const [aviso, setAviso] = useState(null)
   const filas = estado.hospitalizaciones.filter((h) => !h.anulada && ['pendiente_hc', 'observado'].includes(h.egreso?.estado)).sort((a, b) => (a.egreso.fechaHora < b.egreso.fechaHora ? -1 : 1))
@@ -64,12 +78,13 @@ export function Completado() {
               { key: 'egreso', label: 'Egreso', width: 150, render: (h) => verFechaHora(h.egreso.fechaHora) },
               { key: 'hcFisica', label: 'HC física', width: 190, render: (h) => ESTADOS_HC[h.egreso.hc] },
               { key: 'estado', label: 'Estado', width: 150, render: (h) => <Badge label={ESTADOS_EGRESO[h.egreso.estado].label} tone={ESTADOS_EGRESO[h.egreso.estado].tono} /> },
-              { key: 'accion', label: '', width: 110, align: 'right', render: (h) => <Button size="sm" onClick={() => setAbierto(h.id)}>Completar</Button> },
+              { key: 'accion', label: '', width: 220, align: 'right', render: (h) => <Stack direction="row" gap={2} justify="end"><Button size="sm" tone="ghost" onClick={() => setCorregir(h)}>Corregir ingreso</Button><Button size="sm" onClick={() => setAbierto(h.id)}>Completar</Button></Stack> },
             ]}
           />
         </Stack>
       </Card>
       {actual && <DialogoCompletar hospitalizacion={actual} onCerrar={() => setAbierto(null)} />}
+      {corregir && <DialogoCorregirIngreso hospitalizacion={corregir} onCerrar={() => setCorregir(null)} />}
     </Stack></div>
   )
 }

@@ -40,6 +40,7 @@ export function proximaHora(f, hhmm) {
 export const esFechaHora = (f) => /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(f ?? '')
 
 export function edad(nacimiento, f) {
+  if (!nacimiento) return '—'
   const [a, m, d] = [+nacimiento.slice(0, 4), +nacimiento.slice(5, 7), +nacimiento.slice(8, 10)]
   const [fa, fm, fd] = [+f.slice(0, 4), +f.slice(5, 7), +f.slice(8, 10)]
   return fa - a - (fm < m || (fm === m && fd < d) ? 1 : 0)
