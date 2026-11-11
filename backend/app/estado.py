@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.config import es_demo
 
-SIN_DATOS_DE_PACIENTE = ("consulta", "ti")
+SIN_DATOS_DE_PACIENTE = ("consulta", "ti")  # sin cuentas activas con estos roles desde el 2026-11-11
 
 
 def _todas(conexion, sql: str, **p):
@@ -27,10 +27,10 @@ def construir(conexion, cuenta: dict, ahora: str) -> dict:
     arranques = {f["id"]: f["fecha_arranque"].isoformat() for f in servicios if f["fecha_arranque"]}
     ids_activas = _todas(
         conexion,
-        """SELECT c.id, c.codigo, c.tipo, c.zona_id, z.codigo AS habitacion, c.servicio_id, c.fuera_de_servicio, c.x, c.y, c.rotacion,
+        """SELECT c.id, c.codigo, c.tipo, c.zona_id, z.codigo AS habitacion, c.servicio_id, s.departamento_id, c.fuera_de_servicio, c.x, c.y, c.rotacion,
              (SELECT a.codigo_interno FROM activo_cama a WHERE a.cama_id = c.id LIMIT 1) AS activo,
              b.motivo AS bloqueo_motivo, texto_local(b.desde) AS bloqueo_desde
-           FROM cama c JOIN zona z ON z.id = c.zona_id
+           FROM cama c JOIN zona z ON z.id = c.zona_id JOIN servicio s ON s.id = c.servicio_id
            LEFT JOIN bloqueo_cama b ON b.cama_id = c.id AND b.hasta IS NULL
            WHERE c.activa ORDER BY c.codigo""",
     )
@@ -42,7 +42,7 @@ def construir(conexion, cuenta: dict, ahora: str) -> dict:
     camas = [
         {
             "id": c["id"], "codigo": c["codigo"], "tipo": c["tipo"], "zonaId": c["zona_id"], "habitacion": c["habitacion"],
-            "servicioId": c["servicio_id"], "activo": c["activo"] or "—",
+            "servicioId": c["servicio_id"], "departamentoId": c["departamento_id"], "activo": c["activo"] or "—",
             "bloqueo": {"motivo": c["bloqueo_motivo"], "desde": c["bloqueo_desde"]} if c["bloqueo_motivo"] else None,
             "fueraDeServicio": c["fuera_de_servicio"],
         }
@@ -64,7 +64,7 @@ def construir(conexion, cuenta: dict, ahora: str) -> dict:
 
     ordenes = [] if restringida else [
         {
-            "id": _s(o["id"]), "pacienteId": _s(o["paciente_id"]), "origen": o["origen"], "servicioId": o["servicio_id"],
+            "id": _s(o["id"]), "pacienteId": _s(o["paciente_id"]), "origen": o["origen"], "departamentoId": o["departamento_id"], "servicioId": o["servicio_id"],
             "servicioProcedencia": o["servicio_procedencia_id"], "fechaHora": o["fecha"], "medicoOrdena": o["medico_ordena"] or "",
             "diagnosticoIngreso": o["diagnostico_ingreso"] or "", "enviadaPor": o["enviada_por"] or "", "estado": o["estado"],
             "motivoAnulacion": o["motivo_anulacion"], "hospitalizacionId": _s(o["hosp"]),

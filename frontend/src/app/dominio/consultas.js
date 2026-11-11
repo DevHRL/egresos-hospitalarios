@@ -71,6 +71,7 @@ export const camaPorId = (e, id) => e.camas.find((c) => c.id === id) ?? e.camasD
 export const pacientePorId = (e, id) => e.pacientes.find((p) => p.id === id)
 export const hospitalizacionPorId = (e, id) => e.hospitalizaciones.find((h) => h.id === id)
 export const serviciosConCamas = (e) => [...new Set(e.camas.map((c) => c.servicioId))]
+export const departamentosConCamas = (e) => [...new Set(e.camas.map((c) => c.departamentoId))]
 export const movimientosDe = (e, hId) => e.movimientos.filter((m) => m.hospitalizacionId === hId && !m.anulado).sort(porHora)
 
 /* Dónde está el paciente justo antes de `limite`: { camaId, servicioId,

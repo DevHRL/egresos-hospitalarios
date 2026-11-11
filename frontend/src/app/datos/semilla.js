@@ -3,6 +3,9 @@
    la historia deja de ser válida, las pruebas lo señalan. */
 
 import { aplicar, estadoInicial, fijarReloj, maestroDesdePlano } from '../dominio/hospitalizacion.js'
+import { servicioPorId } from './catalogo.js'
+
+export const departamentoDe = (servicioId) => servicioPorId(servicioId)?.departamento.id ?? null
 
 export const INICIO_DEMO = '2026-11-05T07:00'
 export const AHORA_DEMO = '2026-11-08T10:30'
@@ -10,6 +13,7 @@ export const AHORA_DEMO = '2026-11-08T10:30'
 const B = 'medicina-b'
 const I = 'medicina-intermedios'
 const SISTEMA = { id: 'sistema', rol: 'sistema', servicios: [] }
+const MEDICINA = 'medicina'
 
 const PACIENTES = [
   ['Ríos Demo, Ana', 'F', '1958-03-12'],
@@ -41,14 +45,16 @@ const PACIENTES = [
 const cama = (codigo) => `cama-${codigo.toLowerCase()}`
 
 export function crearSemilla(plano) {
-  let e = estadoInicial(maestroDesdePlano(plano), INICIO_DEMO)
+  let e = estadoInicial(maestroDesdePlano(plano, departamentoDe), INICIO_DEMO)
   const reloj = (f) => { e = fijarReloj(e, f) }
   const accion = (tipo, datos = {}) => { e = aplicar(e, { tipo, cuenta: SISTEMA, ...datos }) }
   const hospDe = (i) => e.hospitalizaciones.filter((h) => e.pacientes.find((p) => p.id === h.pacienteId)?.hc === PACIENTES[i].hc).at(-1).id
 
   const ingreso = (i, servicioId, codigo, f, origen = 'emergencia', dx = 'Neumonía') => {
     reloj(f)
-    accion('orden/registrar', { paciente: PACIENTES[i], origen, servicioId, medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
+    accion('orden/registrar', { paciente: PACIENTES[i], origen, departamentoId: MEDICINA, medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
+    /* El departamento designa la cama; `servicioId` solo dice en qué área cae. */
+    if (!cama(codigo).includes(servicioId === B ? 'cama-b-' : 'cama-i-')) throw new Error(`La cama ${codigo} no es de ${servicioId}`)
     accion('ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama(codigo), fechaHora: f })
   }
   const cerrar = (dia, f) => {
@@ -121,11 +127,11 @@ export function crearSemilla(plano) {
   reloj('2026-11-08T09:00')
   accion('falla/reportar', { camaId: cama('B-11'), falla: 'No sube el respaldo' })
   reloj('2026-11-08T09:40')
-  accion('orden/registrar', { paciente: PACIENTES[16], origen: 'consulta_externa', servicioId: B, medicoOrdena: 'Dr. Demo Paredes', diagnosticoIngreso: 'Enfermedad renal crónica', enviadaPor: '' })
+  accion('orden/registrar', { paciente: PACIENTES[16], origen: 'consulta_externa', departamentoId: MEDICINA, medicoOrdena: 'Dr. Demo Paredes', diagnosticoIngreso: 'Enfermedad renal crónica', enviadaPor: '' })
   reloj('2026-11-08T10:05')
-  accion('orden/registrar', { paciente: PACIENTES[17], origen: 'emergencia', servicioId: B, medicoOrdena: 'Dra. Demo Vásquez', diagnosticoIngreso: 'Neumonía', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
+  accion('orden/registrar', { paciente: PACIENTES[17], origen: 'emergencia', departamentoId: MEDICINA, medicoOrdena: 'Dra. Demo Vásquez', diagnosticoIngreso: 'Neumonía', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
   reloj('2026-11-08T10:20')
-  accion('orden/registrar', { paciente: PACIENTES[18], origen: 'emergencia', servicioId: I, medicoOrdena: 'Dr. Demo Tuesta', diagnosticoIngreso: 'Insuficiencia respiratoria', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
+  accion('orden/registrar', { paciente: PACIENTES[18], origen: 'emergencia', departamentoId: MEDICINA, medicoOrdena: 'Dr. Demo Tuesta', diagnosticoIngreso: 'Insuficiencia respiratoria', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
   reloj(AHORA_DEMO)
   return { ...e, bitacora: [] }
 }

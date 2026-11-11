@@ -3,8 +3,9 @@
    los permisos de la cuenta y deja rastro en la bitácora. El censo, los
    reportes y los indicadores se calculan después (ver `consultas.js`).
 
-   Admisión registra que el paciente entra a hospitalización en un área; la
-   cama la confirma enfermería de piso. Los préstamos de cama aún no existen:
+   Admisión envía al paciente a un departamento; la cuenta del departamento
+   designa habitación y cama, y con eso queda el área. Desde ahí el piso
+   controla al paciente y a su cama. Los préstamos de cama aún no existen:
    una cama solo admite pacientes de su propio servicio. */
 
 import {
@@ -12,6 +13,7 @@ import {
   camaPorId,
   censoEditable,
   choqueDeCamas,
+  departamentosConCamas,
   claveCenso,
   cuadreCenso,
   diasDesdeArranque,
@@ -35,13 +37,15 @@ const falla = (mensaje) => {
   throw new ErrorRegla(mensaje)
 }
 
-const ENFERMERIA = ['enfermeria', 'tecnico', 'jefatura']
+/* Desde el 2026-11-11 solo el piso registra movimientos de su paciente. */
+const ENFERMERIA = ['enfermeria']
+const CENSO = ['enfermeria', 'jefatura']
 
 /* Roles que pueden ejecutar cada acción; `sistema` carga la demostración. */
 const PERMISOS = {
   'orden/registrar': ['admision'],
   'orden/anular': ['admision'],
-  'ingreso/confirmar': ENFERMERIA,
+  'ingreso/confirmar': ['departamento'],
   'traslado/registrar': ENFERMERIA,
   'traslado/confirmar': ENFERMERIA,
   'traslado/cancelar': ENFERMERIA,
@@ -55,8 +59,8 @@ const PERMISOS = {
   'mant/retirar': ['mantenimiento'],
   'mant/resolver': ['mantenimiento'],
   'mant/entregar': ['mantenimiento'],
-  'censo/cerrar': ENFERMERIA,
-  'censo/nota': ENFERMERIA,
+  'censo/cerrar': CENSO,
+  'censo/nota': CENSO,
   'censo/reabrir': ['jefatura'],
   'hc/recibir': ['tecnico', 'jefatura'],
   'hc/devolver': ['tecnico', 'jefatura'],
@@ -70,7 +74,7 @@ const PERMISOS = {
 const DESCRIPCION = {
   'orden/registrar': 'Registró una orden de hospitalización',
   'orden/anular': 'Anuló una orden de hospitalización',
-  'ingreso/confirmar': 'Confirmó cama e ingreso',
+  'ingreso/confirmar': 'Designó habitación y cama',
   'traslado/registrar': 'Registró un traslado',
   'traslado/confirmar': 'Confirmó la llegada de un traslado',
   'traslado/cancelar': 'Canceló un traslado',
@@ -96,8 +100,9 @@ const DESCRIPCION = {
   'renoxi/marcar': 'Marcó RENOXI como cargado',
 }
 
-/* Camas del plano como maestro de puestos del flujo. */
-export function maestroDesdePlano(plano) {
+/* Camas del plano como maestro de puestos del flujo. `departamentoDe` dice a
+   qué departamento pertenece cada servicio (sale del catálogo, en datos/). */
+export function maestroDesdePlano(plano, departamentoDe) {
   const zonas = new Map(plano.zonas.map((z) => [z.id, z]))
   return plano.camas.map((c) => ({
     id: c.id,
@@ -106,6 +111,7 @@ export function maestroDesdePlano(plano) {
     zonaId: c.zonaId,
     habitacion: zonas.get(c.zonaId).codigo,
     servicioId: c.servicioId ?? zonas.get(c.zonaId).servicioId,
+    departamentoId: departamentoDe(c.servicioId ?? zonas.get(c.zonaId).servicioId),
     activo: `CAM-${c.codigo}`,
     bloqueo: null,
     fueraDeServicio: false,
@@ -141,7 +147,7 @@ function nuevoId(e, prefijo) {
 }
 
 function asegurarServicio(cuenta, servicioId) {
-  if (cuenta.rol === 'enfermeria' && !cuenta.servicios.includes(servicioId)) falla('Esta cuenta solo opera las camas de su servicio.')
+  if (['enfermeria', 'departamento'].includes(cuenta.rol) && !cuenta.servicios.includes(servicioId)) falla('Esta cuenta solo opera las camas de su servicio.')
 }
 
 function asegurarFecha(e, fechaHora) {
@@ -197,8 +203,7 @@ export function aplicar(estado, accion) {
 
   switch (tipo) {
     case 'orden/registrar': {
-      const servicios = serviciosConCamas(e)
-      if (!servicios.includes(d.servicioId)) falla('Elige el área de hospitalización.')
+      if (!departamentosConCamas(e).includes(d.departamentoId)) falla('Elige el departamento de hospitalización.')
       if (!['consulta_externa', 'emergencia'].includes(d.origen)) falla('Indica si viene de consulta externa o de emergencia.')
       if (d.origen === 'emergencia' && !texto(d.enviadaPor)) falla('Indica qué enfermera de emergencia envió la orden.')
       let paciente = d.pacienteId ? pacientePorId(e, d.pacienteId) : null
@@ -219,7 +224,8 @@ export function aplicar(estado, accion) {
         id: nuevoId(e, 'ord'),
         pacienteId: paciente.id,
         origen: d.origen,
-        servicioId: d.servicioId,
+        departamentoId: d.departamentoId,
+        servicioId: null,
         fechaHora: e.ahora,
         medicoOrdena: texto(d.medicoOrdena),
         diagnosticoIngreso: texto(d.diagnosticoIngreso),
@@ -228,7 +234,7 @@ export function aplicar(estado, accion) {
         hospitalizacionId: null,
       }
       e.ordenes = [...e.ordenes, orden]
-      detalle = `${paciente.nombres} a ${d.servicioId}`
+      detalle = `${paciente.nombres} a ${d.departamentoId}`
       break
     }
 
@@ -245,10 +251,10 @@ export function aplicar(estado, accion) {
       const o = e.ordenes.find((x) => x.id === d.ordenId)
       if (!o || o.estado !== 'pendiente') falla('La orden ya no está pendiente.')
       const cama = camaPorId(e, d.camaId)
-      if (!cama) falla('Elige la cama.')
-      asegurarServicio(cuenta, o.servicioId)
-      if (cama.servicioId !== o.servicioId) falla('La cama debe ser del área indicada por Admisión.')
-      asegurarEditable(e, o.servicioId, d.fechaHora)
+      if (!cama) falla('Elige la habitación y la cama.')
+      if (cama.departamentoId !== o.departamentoId) falla('La cama debe ser del departamento al que Admisión envió al paciente.')
+      asegurarServicio(cuenta, cama.servicioId)
+      asegurarEditable(e, cama.servicioId, d.fechaHora)
       if (d.fechaHora < o.fechaHora) falla('La hora de ingreso no puede ser anterior a la orden de Admisión.')
       asegurarCamaLista(e, cama)
       const h = {
@@ -262,10 +268,10 @@ export function aplicar(estado, accion) {
         anulada: false,
       }
       e.hospitalizaciones = [...e.hospitalizaciones, h]
-      e.ordenes = reemplazar(e.ordenes, o.id, { estado: 'ingresada', hospitalizacionId: h.id })
+      e.ordenes = reemplazar(e.ordenes, o.id, { estado: 'ingresada', servicioId: cama.servicioId, hospitalizacionId: h.id })
       agregarMovimiento(e, { hospitalizacionId: h.id, tipo: 'ingreso', fechaHora: d.fechaHora, camaId: cama.id, servicioId: cama.servicioId }, cuenta)
       cerrarConsistencia(e)
-      detalle = `Cama ${cama.codigo}`
+      detalle = `Cama ${cama.codigo} en ${cama.servicioId}`
       break
     }
 

@@ -14,4 +14,5 @@ complétala y añádela a `nav` en `mkdocs.yml`.
 | [0003](0003-captura-dual-papel-digital.md) | Captura dual: papel transcrito o digital por servicio | Propuesta |
 | [0004](0004-vista-isometrica-svg.md) | Plano de camas: datos únicos, vista 2D e isométrica en SVG | Adoptada |
 | [0005](0005-ingreso-obligatorio-reemplazo-aletheia.md) | Ingreso obligatorio y reemplazo de Aletheia | Propuesta |
-| [0006](0006-credencial-por-area.md) | Una credencial por área | Adoptada |
+| [0006](0006-credencial-por-area.md) | Una credencial por área | Adoptada (cuentas cambiadas por 0007) |
+| [0007](0007-orden-al-departamento-seis-cuentas.md) | Orden al departamento, seis cuentas y plano precargado | Adoptada |

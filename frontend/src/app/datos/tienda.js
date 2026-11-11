@@ -131,12 +131,6 @@ export async function despachar(accion) {
   }
 }
 
-export async function publicarPlano(plano) {
-  const r = await api('plano', plano)
-  await recargar()
-  return r
-}
-
 export async function moverReloj(ahora) {
   await api('demo/reloj', { ahora })
   await recargar()

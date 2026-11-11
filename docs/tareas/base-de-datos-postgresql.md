@@ -7,9 +7,10 @@
 | **Resultado** | Migraciones, semillas, API y pruebas en `backend/`; frontend conectado |
 | **Motor** | PostgreSQL 16 |
 
-> Las decisiones del 2026-11-09 cambiaron parte de lo que sigue. Donde difieran,
-> manda la [sección 14](#14-cambios-del-2026-11-09), y el esquema real está en
-> `backend/migraciones/sql/`.
+> Las decisiones del 2026-11-09 y del 2026-11-11 cambiaron parte de lo que sigue.
+> Donde difieran, mandan las [sección 14](#14-cambios-del-2026-11-09) y
+> [15](#15-cambios-del-2026-11-11); el esquema real está en
+> `backend/migraciones/` (SQL de `0001` más la migración `0002`).
 
 ## 1. Objetivo
 
@@ -739,3 +740,24 @@ corre en el puerto 5544.
 **Cifras que cambian en la sección 11.** Maestros: 2 pisos, 40 zonas, 45 camas, 45
 activos y 13 cuentas. Indicadores 2026-11, fila Total: A 45, H 0,02. El resto de esa
 sección se mantiene.
+
+## 15. Cambios del 2026-11-11
+
+Ver la [decisión 0007](../decisiones/0007-orden-al-departamento-seis-cuentas.md).
+
+- **Migración `0002`.** `orden_hospitalizacion.departamento_id` (obligatorio);
+  `servicio_id` queda vacío hasta que el departamento designa la cama, y una orden
+  `ingresada` siempre lo tiene. Rol nuevo `departamento` en `cuenta.rol`.
+- **Permisos.** `ingreso/confirmar` es del rol `departamento`. Ingreso, traslado,
+  soporte, egreso y anulación de movimientos son solo de `enfermeria`; el censo,
+  de `enfermeria` y `jefatura`.
+- **UCI fuera del prototipo.** Sin fecha de arranque y en captura de papel. Un
+  traslado a UCI o a otro departamento es un egreso `traslado_no_incorporado`.
+- **Sin editor.** Se quitó `POST /api/plano`; el plano se carga con las semillas.
+- **Arranque sin datos ficticios.** `semillas/iniciar_sin_datos.py` borra todo y
+  carga solo lo de referencia (con `--confirmar`). `pruebas/test_inicio_sin_datos.py`
+  recorre desde esa base vacía el flujo completo con las seis cuentas, hasta el
+  cierre del mes.
+
+**Cifras que cambian.** Maestros: 1 piso, 37 zonas, 29 camas, 29 activos y 7
+cuentas (seis y `sistema`). `v_tablero` tiene 2 filas.

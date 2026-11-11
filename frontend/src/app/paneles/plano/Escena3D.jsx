@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Tooltip } from '@hrl/core-ui'
 import {
   acotar, areaLibre, camaraInicial, camaraSobre, escalaBase, interpolar, pantallaAPiso, proyector, zoomHacia,
@@ -11,7 +11,10 @@ import {
    - Arrastrar: gira (de lado a lado) e inclina (de arriba abajo).
    - Mayús + arrastrar o clic derecho: desplaza.
    - Rueda o pellizco: acerca hacia el puntero.
-   - Un clic sin arrastrar llega a `onPulsar` con el elemento pulsado. */
+   - Un clic sin arrastrar llega a `onPulsar` con el evento del puntero.
+
+   Rendimiento: los gestos llegan más rápido que la pantalla, así que la
+   cámara se publica como mucho una vez por cuadro. */
 
 const UMBRAL_PX = 4
 const GRADOS_POR_PX = 0.4
@@ -25,6 +28,7 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
   const [arrastrando, setArrastrando] = useState(false)
   const actual = useRef(camara)
   const animacion = useRef(0)
+  const cuadro = useRef(0)
   const gesto = useRef(null)
   const punteros = useRef(new Map())
 
@@ -32,9 +36,15 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
   const base = useMemo(() => escalaBase(caja, area), [caja, area])
   const vista = useMemo(() => proyector(camara, area, base), [camara, area, base])
 
+  /* La cámara vive en una ref y se publica al estado una vez por cuadro. */
   const fijar = useCallback((c) => {
     actual.current = c
-    setCamaraEstado(c)
+    if (!cuadro.current) {
+      cuadro.current = requestAnimationFrame(() => {
+        cuadro.current = 0
+        setCamaraEstado(actual.current)
+      })
+    }
   }, [])
 
   const detener = () => cancelAnimationFrame(animacion.current)
@@ -52,7 +62,10 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
     animacion.current = requestAnimationFrame(paso)
   }, [fijar])
 
-  useEffect(() => () => cancelAnimationFrame(animacion.current), [])
+  useEffect(() => () => {
+    cancelAnimationFrame(animacion.current)
+    cancelAnimationFrame(cuadro.current)
+  }, [])
 
   /* Otro piso u otro servicio: se vuelve a la vista inicial. */
   const claveCaja = `${caja.x0},${caja.y0},${caja.x1},${caja.y1}`
@@ -116,10 +129,9 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
       tipo: e.button === 2 || e.shiftKey ? 'mover' : 'girar',
       x: e.clientX,
       y: e.clientY,
-      objetivo: e.target,
       movido: false,
       id: e.pointerId,
-      svg: e.currentTarget,
+      superficie: e.currentTarget,
     }
   }
 
@@ -143,9 +155,13 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
     if (!g.movido) {
       if (Math.hypot(dx, dy) < UMBRAL_PX) return false
       g.movido = true
-      /* Se captura recién al arrastrar: así un clic simple conserva su
-         objetivo y no termina en el SVG. */
-      g.svg.setPointerCapture?.(g.id)
+      /* Se captura recién al arrastrar: así el arrastre sigue aunque el
+         puntero salga del plano. */
+      try {
+        g.superficie.setPointerCapture?.(g.id)
+      } catch {
+        /* Un puntero que ya se soltó no se puede capturar: el gesto sigue igual. */
+      }
       setArrastrando(true)
     }
     g.x = e.clientX
@@ -170,7 +186,7 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
     }
     gesto.current = null
     setArrastrando(false)
-    if (!g.movido && e.type === 'pointerup' && e.button === 0) onPulsar?.(g.objetivo)
+    if (!g.movido && e.type === 'pointerup' && e.button === 0) onPulsar?.(e)
   }
 
   const girar = (grados) => animarA(acotar({ ...actual.current, azimut: actual.current.azimut + grados }))
@@ -194,19 +210,30 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
     }
     const accion = acciones[e.key]
     if (!accion) return
-    /* Que el editor no reciba también la tecla (las flechas mueven lo
-       seleccionado en la planta). */
+    /* La tecla es de la cámara: que no siga hacia la página (las flechas la
+       desplazarían). */
     e.preventDefault()
     e.stopPropagation()
     accion()
   }
+
+  /* Funciones estables para la botonera: así no se vuelve a dibujar en cada
+     cuadro del giro. Siempre llaman a la versión vigente. */
+  const vigentes = useRef({})
+  vigentes.current = { girar, acercar, reiniciar, salirFoco: onSalirFoco }
+  const estables = useMemo(() => ({
+    girar: (g) => vigentes.current.girar(g),
+    acercar: (f) => vigentes.current.acercar(f),
+    reiniciar: () => vigentes.current.reiniciar(),
+    salirFoco: () => vigentes.current.salirFoco?.(),
+  }), [])
 
   return {
     vista,
     camara,
     arrastrando,
     lienzo: { tabIndex: 0, onKeyDown: alTeclear },
-    svg: {
+    superficie: {
       onPointerDown: alPresionar,
       onPointerUp: alSoltar,
       onPointerCancel: alSoltar,
@@ -214,19 +241,15 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
     },
     /* Devuelve true si el movimiento fue parte de un gesto (sin tooltip). */
     mover: alMover,
-    controles: { girar, acercar, reiniciar, salirFoco: onSalirFoco, hayFoco: Boolean(foco), nombreFoco: foco?.codigo || foco?.nombre },
+    controles: { ...estables, hayFoco: Boolean(foco), nombreFoco: foco?.codigo || foco?.nombre || '' },
   }
 }
 
-/* Botonera de la cámara. Se ubica abajo a la derecha, dentro del hueco que
-   dejan los paneles. El kit aún no tiene iconos de girar ni de zoom: por
-   eso, como en la planta, los botones llevan texto. */
-export function ControlesCamara({ controles, margenes }) {
-  const { girar, acercar, reiniciar, salirFoco, hayFoco, nombreFoco } = controles
-  /* En el editor queda sobre la barra de estado y al lado del panel derecho. */
-  const estilo = margenes ? { right: Math.max(12, margenes.derecha - 8), bottom: Math.max(12, margenes.abajo - 4) } : undefined
+/* Botonera de la cámara, abajo a la derecha del plano. El kit aún no tiene
+   iconos de girar ni de zoom: por eso los botones llevan texto. */
+export const ControlesCamara = memo(function ControlesCamara({ girar, acercar, reiniciar, salirFoco, hayFoco, nombreFoco }) {
   return (
-    <div className="escena3d__controles" style={estilo} role="toolbar" aria-label="Cámara 3D">
+    <div className="escena3d__controles" role="toolbar" aria-label="Cámara 3D">
       {hayFoco && (
         <Button tone="blue" size="sm" icon="sh-close" onClick={salirFoco} aria-label="Ver todo el piso (Esc)">
           {nombreFoco ? `Salir de ${nombreFoco}` : 'Ver todo'}
@@ -246,7 +269,6 @@ export function ControlesCamara({ controles, margenes }) {
         </Tooltip>
         <Button tone="ghost" size="sm" onClick={() => acercar(1.25)} aria-label="Acercar (+)">+</Button>
       </div>
-      <p className="escena3d__ayuda">Arrastra para girar · Mayús o clic derecho para mover · rueda para acercar</p>
     </div>
   )
-}
+})

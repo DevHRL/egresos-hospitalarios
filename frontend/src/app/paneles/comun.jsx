@@ -1,6 +1,6 @@
 import { createContext, useContext, useRef, useState } from 'react'
 import { Alert, Button, Dialog, Input, Stack } from '@hrl/core-ui'
-import { servicioPorId } from '../datos/catalogo.js'
+import { DEPARTAMENTOS, servicioPorId } from '../datos/catalogo.js'
 import { diaDe, sumarDias } from '../dominio/tiempo.js'
 
 /* Lo que toda pantalla necesita: el estado, la cuenta con la que se entró y
@@ -9,6 +9,7 @@ export const ContextoApp = createContext(null)
 export const useApp = () => useContext(ContextoApp)
 
 export const nombreServicio = (id) => servicioPorId(id)?.nombre ?? id
+export const nombreDepartamento = (id) => DEPARTAMENTOS.find((d) => d.id === id)?.nombre ?? id
 
 export const opcionesServicio = (ids) => ids.map((id) => ({ value: id, label: nombreServicio(id) }))
 

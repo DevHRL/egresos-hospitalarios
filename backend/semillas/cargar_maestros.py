@@ -9,7 +9,8 @@ from sqlalchemy import create_engine, text
 from app.config import url_owner, variable
 from app.sesion import hash_clave
 
-DIGITALES = {"medicina-b", "medicina-intermedios", "cuidados-criticos", "uci-cirugia", "uci-pediatria"}
+# UCI vuelve a papel el 2026-11-11: sale del prototipo hasta tener su mapeo físico.
+DIGITALES = {"medicina-b", "medicina-intermedios"}
 REPORTE_DIRESA = {
     **dict.fromkeys(["medicina", "infectologia", "obstetricia", "pediatria", "cirugia", "ginecologia", "salud-mental", "oncologia"], "hospitalizacion"),
     **dict.fromkeys(["uci-medicina", "uci-cirugia", "uci-pediatria", "uci-neonatologia", "quemados"], "uci"),
@@ -124,6 +125,13 @@ def _cuentas(conexion, datos: dict) -> None:
         _ejec(conexion, "DELETE FROM cuenta_servicio WHERE cuenta_id = :id", id=c["id"])
         for servicio in c["servicios"]:
             _ejec(conexion, "INSERT INTO cuenta_servicio (cuenta_id, servicio_id) VALUES (:id, :s)", id=c["id"], s=servicio)
+    # Las cuentas que ya no están en la lista quedan inactivas: no se borran porque la
+    # bitácora y los movimientos las nombran.
+    _ejec(
+        conexion,
+        "UPDATE cuenta SET activo = (id = 'sistema' OR id = ANY(:ids))",
+        ids=[c["id"] for c in datos["cuentas"]],
+    )
 
 
 def _dotacion(conexion, datos: dict) -> None:

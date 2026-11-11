@@ -3,78 +3,100 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { aplicar, ErrorRegla, estadoInicial, fijarReloj, maestroDesdePlano } from '../src/app/dominio/hospitalizacion.js'
 import { censoEditable, cuadreCenso, estadoCama, filasCenso, indicadoresDelMes, posicionActual, renoxiDelDia, resumenCamas, TRASLADO_NO_INCORPORADO } from '../src/app/dominio/consultas.js'
-import { crearSemilla } from '../src/app/datos/semilla.js'
+import { crearSemilla, departamentoDe } from '../src/app/datos/semilla.js'
 import { CUENTAS, MODULOS, cuentaPorId } from '../src/app/datos/cuentas.js'
 
 const plano = JSON.parse(fs.readFileSync(new URL('../src/app/datos/planos/medicina-b-piso2.json', import.meta.url), 'utf8'))
 const ADM = cuentaPorId('admision')
 const B = cuentaPorId('medicina.b')
 const INT = cuentaPorId('medicina.int')
-const TEC = cuentaPorId('estadistica.tec')
-const JEFE = cuentaPorId('estadistica.jefe')
+const DEP = cuentaPorId('dep.medicina')
+const EST = cuentaPorId('estadistica')
 const MANT = cuentaPorId('mantenimiento')
+const MED = 'medicina'
 const MB = 'medicina-b'
 const MI = 'medicina-intermedios'
 const DIA = '2026-11-02'
 const H = (h) => `${DIA}T${h}`
 const paciente = (n, sexo = 'F') => ({ hc: `1000${n}`, dni: `4000000${n}`, nombres: `Prueba ${n}`, sexo, nacimiento: '1970-01-01' })
 
-const base = () => estadoInicial(maestroDesdePlano(plano), H('06:00'))
+const base = () => estadoInicial(maestroDesdePlano(plano, departamentoDe), H('06:00'))
 const hacer = (e, cuenta, tipo, datos = {}) => aplicar(e, { tipo, cuenta, ...datos })
 const a = (e, f) => fijarReloj(e, f)
 const falla = (fn, patron) => assert.throws(fn, (err) => err instanceof ErrorRegla && patron.test(err.message))
 
-function conIngreso(n = 1, cama = 'cama-b-03', servicioId = MB, cuenta = B) {
+const orden = (e, n, extra = {}) => hacer(e, ADM, 'orden/registrar', { paciente: paciente(n), origen: 'consulta_externa', departamentoId: MED, ...extra })
+
+function conIngreso(n = 1, cama = 'cama-b-03') {
   let e = a(base(), H('08:00'))
-  e = hacer(e, ADM, 'orden/registrar', { paciente: paciente(n), origen: 'consulta_externa', servicioId })
-  return hacer(e, cuenta, 'ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama, fechaHora: H('08:00') })
+  e = orden(e, n)
+  return hacer(e, DEP, 'ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama, fechaHora: H('08:00') })
 }
 
 test('el plano tiene 24 camas en B y 5 en Intermedios', () => {
-  const camas = maestroDesdePlano(plano)
+  const camas = maestroDesdePlano(plano, departamentoDe)
   assert.equal(camas.filter((c) => c.servicioId === MB).length, 24)
   assert.equal(camas.filter((c) => c.servicioId === MI).length, 5)
+  assert.ok(camas.every((c) => c.departamentoId === MED))
 })
 
-test('Admisión registra el área, sin cama; enfermería de piso confirma la cama', () => {
+test('Admisión envía al departamento; el departamento designa habitación y cama', () => {
   let e = a(base(), H('08:00'))
-  e = hacer(e, ADM, 'orden/registrar', { paciente: paciente(1), origen: 'emergencia', servicioId: MB, enviadaPor: 'Enfermería de Emergencia' })
+  e = orden(e, 1, { origen: 'emergencia', enviadaPor: 'Enfermería de Emergencia' })
   assert.equal(e.ordenes[0].estado, 'pendiente')
+  assert.equal(e.ordenes[0].departamentoId, MED)
+  assert.equal(e.ordenes[0].servicioId, null)
   assert.equal(e.hospitalizaciones.length, 0)
-  assert.equal('camaId' in e.ordenes[0], false)
-  e = hacer(e, B, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') })
+  e = hacer(e, DEP, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-i-02', fechaHora: H('08:00') })
   assert.equal(e.ordenes[0].estado, 'ingresada')
-  assert.equal(posicionActual(e, e.hospitalizaciones[0].id).camaId, 'cama-b-03')
+  assert.equal(e.ordenes[0].servicioId, MI)
+  const pos = posicionActual(e, e.hospitalizaciones[0].id)
+  assert.deepEqual([pos.camaId, pos.servicioId], ['cama-i-02', MI])
+})
+
+test('desde la designación, el piso controla al paciente y el departamento solo mira', () => {
+  let e = conIngreso(1, 'cama-i-02')
+  const id = e.hospitalizaciones[0].id
+  e = a(e, H('09:00'))
+  falla(() => hacer(e, DEP, 'soporte/cambiar', { hospitalizacionId: id, soporte: 'o2', fechaHora: H('09:00') }), /permiso/)
+  falla(() => hacer(e, DEP, 'traslado/registrar', { hospitalizacionId: id, servicioDestino: MB }), /permiso/)
+  falla(() => hacer(e, EST, 'egreso/registrar', { hospitalizacionId: id, fechaHora: H('09:00'), tipoEgreso: 'alta_medica', condicion: 'mejorado' }), /permiso/)
+  falla(() => hacer(e, B, 'soporte/cambiar', { hospitalizacionId: id, soporte: 'o2', fechaHora: H('09:00') }), /su servicio/)
+  e = hacer(e, INT, 'soporte/cambiar', { hospitalizacionId: id, soporte: 'o2', fechaHora: H('09:00') })
+  assert.equal(posicionActual(e, id).soporte, 'o2')
 })
 
 test('Emergencia exige indicar quién envió la orden', () => {
   const e = a(base(), H('08:00'))
-  falla(() => hacer(e, ADM, 'orden/registrar', { paciente: paciente(1), origen: 'emergencia', servicioId: MB }), /emergencia/)
+  falla(() => orden(e, 1, { origen: 'emergencia' }), /emergencia/)
+  falla(() => orden(e, 1, { departamentoId: 'cirugia' }), /departamento/)
 })
 
 test('los permisos siguen a la cuenta', () => {
   let e = a(base(), H('08:00'))
-  falla(() => hacer(e, B, 'orden/registrar', { paciente: paciente(1), origen: 'consulta_externa', servicioId: MB }), /permiso/)
-  e = hacer(e, ADM, 'orden/registrar', { paciente: paciente(1), origen: 'consulta_externa', servicioId: MB })
-  falla(() => hacer(e, ADM, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /permiso/)
-  falla(() => hacer(e, INT, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /su servicio/)
+  falla(() => hacer(e, B, 'orden/registrar', { paciente: paciente(1), origen: 'consulta_externa', departamentoId: MED }), /permiso/)
+  e = orden(e, 1)
+  for (const cuenta of [ADM, B, INT, EST, MANT]) {
+    falla(() => hacer(e, cuenta, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /permiso/)
+  }
 })
 
-test('sin préstamos: la cama debe ser del área de la orden', () => {
+test('la cama debe ser del departamento de la orden', () => {
   let e = a(base(), H('08:00'))
-  e = hacer(e, ADM, 'orden/registrar', { paciente: paciente(1), origen: 'consulta_externa', servicioId: MB })
-  falla(() => hacer(e, TEC, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-i-01', fechaHora: H('08:00') }), /área indicada/)
+  e = orden(e, 1)
+  const otra = { ...e, camas: e.camas.map((c) => (c.id === 'cama-i-01' ? { ...c, departamentoId: 'cirugia' } : c)) }
+  falla(() => hacer(otra, DEP, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-i-01', fechaHora: H('08:00') }), /departamento/)
 })
 
 test('no hay dos pacientes en una cama, ni con registro diferido', () => {
   let e = conIngreso(1)
   e = a(e, H('12:00'))
   e = hacer(e, B, 'egreso/registrar', { hospitalizacionId: e.hospitalizaciones[0].id, fechaHora: H('11:00'), tipoEgreso: 'alta_medica', condicion: 'mejorado' })
-  e = hacer(e, ADM, 'orden/registrar', { paciente: paciente(2), origen: 'consulta_externa', servicioId: MB })
-  const orden = e.ordenes.at(-1).id
+  e = orden(e, 2)
+  const ordenId = e.ordenes.at(-1).id
   e = a(e, H('12:30'))
-  falla(() => hacer(e, B, 'ingreso/confirmar', { ordenId: orden, camaId: 'cama-b-03', fechaHora: H('10:30') }), /anterior a la orden/)
-  const ok = hacer(e, B, 'ingreso/confirmar', { ordenId: orden, camaId: 'cama-b-03', fechaHora: H('12:10') })
+  falla(() => hacer(e, DEP, 'ingreso/confirmar', { ordenId, camaId: 'cama-b-03', fechaHora: H('10:30') }), /anterior a la orden/)
+  const ok = hacer(e, DEP, 'ingreso/confirmar', { ordenId, camaId: 'cama-b-03', fechaHora: H('12:10') })
   assert.equal(ok.hospitalizaciones.length, 2)
 })
 
@@ -114,7 +136,7 @@ test('el censo se calcula, exige observación si el conteo difiere y se bloquea'
   assert.equal(censoEditable(e, MB, DIA), false)
   falla(() => hacer(e, B, 'soporte/cambiar', { hospitalizacionId: e.hospitalizaciones[0].id, soporte: 'o2', fechaHora: H('20:00') }), /cerró/)
   falla(() => hacer(e, B, 'censo/reabrir', { servicioId: MB, dia: DIA, motivo: 'x' }), /permiso/)
-  e = hacer(e, JEFE, 'censo/reabrir', { servicioId: MB, dia: DIA, motivo: 'Corrección de hora' })
+  e = hacer(e, EST, 'censo/reabrir', { servicioId: MB, dia: DIA, motivo: 'Corrección de hora' })
   assert.equal(censoEditable(e, MB, DIA), true)
 })
 
@@ -123,7 +145,7 @@ test('pasadas las 08:00 el censo sin cerrar queda bloqueado para enfermería', (
   e = a(e, '2026-11-03T08:01')
   assert.equal(censoEditable(e, MB, DIA), false)
   falla(() => hacer(e, B, 'censo/cerrar', { servicioId: MB, dia: DIA, conteoFisico: 1 }), /Estadística/)
-  e = hacer(e, TEC, 'censo/cerrar', { servicioId: MB, dia: DIA, conteoFisico: 1 })
+  e = hacer(e, EST, 'censo/cerrar', { servicioId: MB, dia: DIA, conteoFisico: 1 })
   assert.equal(e.censos[`${MB}|${DIA}`].estado, 'cerrado')
 })
 
@@ -183,12 +205,12 @@ test('Estadística completa desde la HC y valida; recién entonces cuenta como e
   assert.equal(e.hospitalizaciones[0].egreso.estado, 'pendiente_hc')
   e = a(e, '2026-11-03T07:00')
   e = hacer(e, B, 'censo/cerrar', { servicioId: MB, dia: DIA, conteoFisico: 0 })
-  e = hacer(e, TEC, 'censo/cerrar', { servicioId: MI, dia: DIA, conteoFisico: 0 })
+  e = hacer(e, EST, 'censo/cerrar', { servicioId: MI, dia: DIA, conteoFisico: 0 })
   assert.equal(indicadoresDelMes(e, '2026-11').filas.find((f) => f.servicioId === MB).E, 0)
-  e = hacer(e, TEC, 'hc/recibir', { hc: '10001' })
-  falla(() => hacer({ ...e, pacientes: e.pacientes.map((p) => ({ ...p, sexo: 'M' })) }, TEC, 'egreso/completar', { hospitalizacionId: id, cie10: 'O80', medicoId: 'med-1' }), /obstétrico/)
-  e = hacer(e, TEC, 'egreso/completar', { hospitalizacionId: id, cie10: 'J18.9', medicoId: 'med-1' })
-  e = hacer(e, TEC, 'egreso/validar', { hospitalizacionId: id })
+  e = hacer(e, EST, 'hc/recibir', { hc: '10001' })
+  falla(() => hacer({ ...e, pacientes: e.pacientes.map((p) => ({ ...p, sexo: 'M' })) }, EST, 'egreso/completar', { hospitalizacionId: id, cie10: 'O80', medicoId: 'med-1' }), /obstétrico/)
+  e = hacer(e, EST, 'egreso/completar', { hospitalizacionId: id, cie10: 'J18.9', medicoId: 'med-1' })
+  e = hacer(e, EST, 'egreso/validar', { hospitalizacionId: id })
   const fila = indicadoresDelMes(e, '2026-11').filas.find((f) => f.servicioId === MB)
   assert.deepEqual([fila.A, fila.B, fila.C, fila.E], [24, 1, 1, 1])
 })
@@ -210,14 +232,14 @@ test('el soporte O2 llega a RENOXI', () => {
 
 test('la bitácora registra la cuenta de cada acción', () => {
   const e = conIngreso(1)
-  assert.deepEqual(e.bitacora.map((b) => b.cuenta), ['medicina.b', 'admision'])
+  assert.deepEqual(e.bitacora.map((b) => b.cuenta), ['dep.medicina', 'admision'])
 })
 
 test('el mes solo cierra con censos cerrados y egresos validados', () => {
   const e = a(base(), '2026-12-01T09:00')
   falla(() => hacer(e, B, 'mes/cerrar', { mes: '2026-11' }), /permiso/)
-  falla(() => hacer(e, JEFE, 'mes/cerrar', { mes: '2026-12' }), /en curso/)
-  falla(() => hacer(e, JEFE, 'mes/cerrar', { mes: '2026-11' }), /Falta cerrar/)
+  falla(() => hacer(e, EST, 'mes/cerrar', { mes: '2026-12' }), /en curso/)
+  falla(() => hacer(e, EST, 'mes/cerrar', { mes: '2026-11' }), /Falta cerrar/)
 })
 
 test('la demostración respeta todas las reglas y cuadra', () => {
@@ -233,6 +255,10 @@ test('la demostración respeta todas las reglas y cuadra', () => {
   assert.equal(estadoCama(e, e.camas.find((c) => c.codigo === 'B-18')).estado, 'fuera')
 })
 
-test('cada cuenta usa módulos que existen', () => {
-  for (const c of CUENTAS) for (const m of c.modulos) assert.ok(MODULOS[m], `${c.id}: ${m}`)
+test('cada cuenta usa módulos que existen y todas ven el plano 3D', () => {
+  assert.deepEqual(CUENTAS.map((c) => c.id).sort(), ['admision', 'dep.medicina', 'estadistica', 'mantenimiento', 'medicina.b', 'medicina.int'])
+  for (const c of CUENTAS) {
+    for (const m of c.modulos) assert.ok(MODULOS[m], `${c.id}: ${m}`)
+    assert.ok(c.modulos.includes('mapa'), `${c.id} no ve el plano`)
+  }
 })

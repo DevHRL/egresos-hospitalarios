@@ -42,31 +42,44 @@ cd frontend && npm test
 ## Qué contiene
 
 El flujo completo de hospitalización con pacientes ficticios, guardado en
-PostgreSQL: orden de Admisión, confirmación de cama, censo inicial, traslados,
-soporte de O2 y VM, egreso, censo diario, completado desde la HC, validación,
-RENOXI, indicadores DIRESA, cierre de mes con ajustes, mantenimiento de camas y
-editor del plano. Incluye **Medicina B (24 camas), Medicina Intermedios (5) y tres
-UCI (16)**. El plano de UCI es provisional: usa las cifras del catálogo hasta tener
-su mapeo físico.
+PostgreSQL: orden de Admisión al departamento, designación de habitación y cama,
+traslados, soporte de O2, egreso, censo diario, completado desde la HC,
+validación, RENOXI, indicadores DIRESA, cierre de mes con ajustes y mantenimiento
+de camas. El plano ya viene cargado: **Medicina B (24 camas) y Medicina
+Intermedios (5)**, y todas las cuentas lo ven en 3D (girar, acercar y enfocar
+una habitación).
 
-Se entra con una cuenta por área:
+Seis cuentas ([decisión 0007](docs/decisiones/0007-orden-al-departamento-seis-cuentas.md)):
 
-| Usuario | Área |
+| Usuario | Qué hace |
 |---|---|
-| `admision` | Admisión |
-| `medicina.b` | Enfermería de Medicina B |
-| `medicina.int` | Enfermería de Intermedios |
-| `uci.medicina`, `uci.cirugia`, `uci.pediatria` | Enfermería de cada UCI |
-| `estadistica.tec` | Técnicos de Estadística |
-| `estadistica.camas` | Responsable de camas y RENOXI |
-| `estadistica.jefe` | Jefatura de Estadística |
-| `mantenimiento` | Mantenimiento |
-| `direccion` | Dirección, sin datos de pacientes |
-| `ti` | Administración técnica |
+| `admision` | Envía al paciente al departamento de Medicina |
+| `dep.medicina` | Designa habitación y cama; después solo supervisa |
+| `medicina.b` | Controla a sus pacientes y camas: O2, traslados, alta, mantenimiento, censo |
+| `medicina.int` | Lo mismo en Intermedios |
+| `estadistica` | HC, completado, validación, RENOXI, indicadores y cierre de mes |
+| `mantenimiento` | Retira, repara y entrega camas |
+
+Todas usan la contraseña de `CLAVE_INICIAL_CUENTAS` en `.env`.
 
 Con `APP_ENV=desarrollo`, la barra superior adelanta el reloj y cierra los censos
 pendientes, y el menú de la cuenta cambia de área o reinicia los datos. Con
 `APP_ENV=produccion` esas opciones se apagan y la demostración no se puede cargar.
+
+### Empezar sin datos ficticios
+
+Para probar a mano con datos nuevos, este comando borra **todos** los datos
+(pacientes, órdenes, censos, egresos, mantenimiento y bitácora) y deja solo el
+plano, las seis cuentas y los catálogos. Sin `--confirmar` solo muestra qué haría:
+
+```bash
+cd backend && .venv/Scripts/python -m semillas.iniciar_sin_datos --confirmar --arranque AAAA-MM-DD
+```
+
+El día de arranque, cada piso registra con «Censo inicial» a los pacientes que ya
+estaban hospitalizados. En desarrollo el reloj empieza en la hora real y se puede
+adelantar desde la barra. Ojo: «Reiniciar demostración», en el menú de la cuenta,
+vuelve a cargar los pacientes ficticios.
 
 El modelo de datos y sus reglas están en
 [`docs/tareas/base-de-datos-postgresql.md`](docs/tareas/base-de-datos-postgresql.md).

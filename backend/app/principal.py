@@ -8,7 +8,6 @@ from sqlalchemy.exc import DBAPIError
 
 from app import acciones, estado
 from app.config import es_demo, url_app, url_owner
-from app.plano import guardar_plano
 from app.sesion import clave_correcta, crear_token, leer_token
 from app.tiempo import dia_de, dias_entre, sumar_dias
 
@@ -98,11 +97,6 @@ def ejecutar_accion(accion: dict, request: Request, cuenta: dict = Depends(cuent
         acciones.aplicar(conexion, cuenta, accion, acciones.ahora_de(conexion, es_demo()), request.client.host if request.client else None)
     _escribir(hacer)
     return {"ok": True}
-
-
-@app.post("/api/plano")
-def publicar_plano(plano: dict, request: Request, cuenta: dict = Depends(cuenta_actual)):
-    return _escribir(lambda c: guardar_plano(c, cuenta, plano, acciones.ahora_de(c, es_demo()), request.client.host if request.client else None))
 
 
 @app.post("/api/demo/reloj")

@@ -1,16 +1,21 @@
-import { useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { rectCama } from '../../dominio/plano.js'
 import { ESTADOS_CAMA_MAPA } from '../../dominio/consultas.js'
 import { useTamano } from '../plano/comun.js'
-import { CamaIsometrica } from '../plano/CamaIsometrica.jsx'
+import { servicioPorId } from '../../datos/catalogo.js'
 import { ControlesCamara, useCamara3d } from '../plano/Escena3D.jsx'
-import { ALTO_MURO, deAtrasAdelante, murosDelFondo, sobreElFondo } from '../plano/camara3d.js'
+import { OCUPADA, bajoElPuntero, construirEscena } from '../plano/escena3d.js'
+import { pintar, resolverPaleta } from '../plano/pintura3d.js'
 
-/* El plano en modo consulta: la misma planta del editor, con cada cama pintada
+/* El plano ya cargado (no se edita desde la interfaz), con cada cama pintada
    según su estado. Se encuadra en las habitaciones de los servicios visibles.
-   Además del color, cada cama lleva código e ícono. */
+   Además del color, cada cama lleva código e ícono.
+
+   La vista 3D se pinta en canvas (ver `escena3d.js` y `pintura3d.js`) para que
+   girar y acercar vaya fluido; la planta 2D sigue en SVG. */
 
 const MARGEN = 18
+const FUNDIDO_MS = 500
 
 /* A lo largo: las habitaciones del servicio. A lo ancho: todo el piso, para
    orientarse con el corredor y la estación de enfermeras. */
@@ -26,25 +31,17 @@ function encuadre(propias, todas) {
 /* Lo que queda casi todo fuera del encuadre no se dibuja a medias. */
 const entraEn = (z, b) => (Math.min(z.x + z.ancho, b.x1) - Math.max(z.x, b.x0)) / z.ancho >= 0.6
 
+/* Ícono del sprite del kit con un solo `<use>` (planta 2D). */
 function IconoEstado({ x, y, nombre, lado = 12 }) {
-  return (
-    <svg x={x} y={y} width={lado} height={lado} className="mapa-icono" aria-hidden="true">
-      <use href={`#${nombre}`} />
-    </svg>
-  )
+  return <use href={`#${nombre}`} x={x} y={y} width={lado} height={lado} className="mapa-icono" aria-hidden="true" />
 }
 
 const iconoDe = (info) => (info.falla ? 'sh-warn' : ESTADOS_CAMA_MAPA[info.estado].icono)
+const reducirMovimiento = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-const Rayado = () => (
-  <defs>
-    <pattern id="rayado-iso" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="6" className="plano-rayado" />
-    </pattern>
-  </defs>
-)
-
-export function VistaMapa({ plano, estados, servicios, vista, seleccion, onSeleccionar, tip, texto }) {
+/* Memorizado: solo se vuelve a dibujar si cambian los datos, la selección o la
+   cámara, no cuando la pantalla de arriba cambia por otra cosa. */
+export const VistaMapa = memo(function VistaMapa({ plano, estados, servicios, vista, seleccion, onSeleccionar, tip, texto }) {
   const propias = plano.zonas.filter((z) => z.tipo === 'habitacion' && servicios.includes(z.servicioId))
   const clave = propias.map((z) => z.id).join(',')
   /* Misma caja mientras no cambien las habitaciones: si no, la cámara 3D se
@@ -69,10 +66,11 @@ export function VistaMapa({ plano, estados, servicios, vista, seleccion, onSelec
     const info = porCama.get(id)
     return `${base} mapa-estado--${info.estado}${info.falla ? ' mapa-estado--falla' : ''}${seleccion === id ? ' es-seleccion' : ''}`
   }
-  const comun = { zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, onSeleccionar }
+  const titulo = servicios.map((id) => servicioPorId(id)?.nombre ?? id).join(' y ')
+  const comun = { zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, texto, seleccion, onSeleccionar, titulo }
 
   return vista === 'iso' ? <Isometrica {...comun} /> : <Planta {...comun} />
-}
+})
 
 function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, onSeleccionar }) {
   const ref = useRef(null)
@@ -120,103 +118,167 @@ function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, 
   )
 }
 
+/* Atenuación del resto al enfocar una habitación: de 0 a 1 en medio segundo. */
+function useAtenuacion(activa) {
+  const [valor, setValor] = useState(0)
+  const actual = useRef(0)
+  useEffect(() => {
+    const destino = activa ? 1 : 0
+    if (reducirMovimiento()) {
+      actual.current = destino
+      setValor(destino)
+      return undefined
+    }
+    const desde = actual.current
+    const inicio = performance.now()
+    let id = 0
+    const paso = (t) => {
+      const k = Math.min(1, (t - inicio) / FUNDIDO_MS)
+      actual.current = desde + (destino - desde) * k
+      setValor(actual.current)
+      if (k < 1) id = requestAnimationFrame(paso)
+    }
+    id = requestAnimationFrame(paso)
+    return () => cancelAnimationFrame(id)
+  }, [activa])
+  return valor
+}
+
+/* Paleta resuelta de los tokens del kit; se vuelve a resolver si cambia el tema. */
+function usePaleta(ref) {
+  const [paleta, setPaleta] = useState(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    const resolver = () => setPaleta(resolverPaleta(el))
+    resolver()
+    const observador = new MutationObserver(resolver)
+    observador.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] })
+    const medio = window.matchMedia?.('(prefers-color-scheme: dark)')
+    medio?.addEventListener?.('change', resolver)
+    return () => {
+      observador.disconnect()
+      medio?.removeEventListener?.('change', resolver)
+    }
+  }, [ref])
+  return paleta
+}
+
 /* En 3D se gira, se inclina y se acerca. Al pulsar una habitación (o una de
-   sus camas) la cámara se acerca a ella y el resto se atenúa. */
-function Isometrica({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, onSeleccionar }) {
+   sus camas) la cámara se acerca a ella y el resto se atenúa.
+
+   Se pinta como figura (ai-iso-skill) en un canvas: el marco lleva el número
+   de figura, el nombre, cómo se usa y una lectura en vivo. */
+function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSeleccionar, titulo }) {
   const ref = useRef(null)
+  const lienzo = useRef(null)
+  const sensibles = useRef([])
   const tamano = useTamano(ref)
+  const paleta = usePaleta(ref)
   const [focoId, setFocoId] = useState(null)
+  const [encima, setEncima] = useState(null)
+  const [iconos, setIconos] = useState(0)
   const foco = zonas.find((z) => z.id === focoId && z.tipo === 'habitacion') ?? null
+  const atenuacion = useAtenuacion(Boolean(foco))
   const margenes = useMemo(() => ({ arriba: MARGEN, abajo: MARGEN + 40, izquierda: MARGEN, derecha: MARGEN }), [])
 
-  const pulsar = (el) => {
-    const cama = el?.closest?.('[data-cama]')
-    if (cama) {
-      setFocoId(cama.dataset.zona)
-      return onSeleccionar(cama.dataset.cama)
+  const local = (e) => {
+    const r = lienzo.current.getBoundingClientRect()
+    return [e.clientX - r.left, e.clientY - r.top]
+  }
+  const pulsar = (e) => {
+    const s = bajoElPuntero(sensibles.current, ...local(e))
+    if (s?.tipo === 'cama') {
+      setFocoId(s.zonaId)
+      return onSeleccionar(s.id)
     }
-    setFocoId(el?.closest?.('[data-zona]')?.dataset.zona ?? null)
+    setFocoId(s?.tipo === 'zona' ? s.id : null)
   }
   const escena = useCamara3d({ ref, tamano, caja, margenes, foco, onPulsar: pulsar, onSalirFoco: () => setFocoId(null) })
-  const { vista } = escena
-  const { punto, poligono } = vista
-  const atenuada = (zonaId) => (foco && zonaId !== foco.id ? ' es-atenuada' : '')
-  const orden = [...zonas].sort(deAtrasAdelante(vista, (z) => [z.x + z.ancho / 2, z.y + z.alto / 2]))
-  const centroCama = (c) => {
-    const r = rectCama(c, zonaDe(c))
-    return [r.x + r.ancho / 2, r.y + r.alto / 2]
+  const { vista, camara } = escena
+
+  /* Se pinta tras cada cambio de cámara, datos, foco o tema: un solo canvas,
+     sin elementos que React tenga que comparar. */
+  useLayoutEffect(() => {
+    const canvas = lienzo.current
+    if (!canvas || !paleta || !tamano.ancho) return
+    const dpr = window.devicePixelRatio || 1
+    if (canvas.width !== Math.round(tamano.ancho * dpr) || canvas.height !== Math.round(tamano.alto * dpr)) {
+      canvas.width = Math.round(tamano.ancho * dpr)
+      canvas.height = Math.round(tamano.alto * dpr)
+    }
+    const infoDe = (c) => {
+      const info = porCama.get(c.id)
+      return { estado: info.estado, falla: info.falla, icono: iconoDe(info) }
+    }
+    const { figuras, sensibles: zonasSensibles } = construirEscena({ vista, zonas, camas, infoDe, foco, seleccion, encima, atenuacion, pantalla: tamano })
+    sensibles.current = zonasSensibles
+    pintar(canvas.getContext('2d'), figuras, paleta, { ancho: tamano.ancho, alto: tamano.alto, dpr, alCargarIcono: () => setIconos((n) => n + 1) })
+  }, [vista, zonas, camas, porCama, foco, seleccion, encima, atenuacion, paleta, tamano, iconos])
+
+  const alPasar = (e) => {
+    if (escena.mover(e)) {
+      tip.hide()
+      return
+    }
+    const s = bajoElPuntero(sensibles.current, ...local(e))
+    const camaId = s?.tipo === 'cama' ? s.id : null
+    if (camaId !== encima) setEncima(camaId)
+    lienzo.current.style.cursor = s ? 'pointer' : ''
+    if (s?.tipo === 'cama') {
+      const t = texto(porCama.get(s.id))
+      tip.follow(e, t.titulo, t.cuerpo)
+    } else if (s?.tipo === 'zona') {
+      tip.follow(e, `Habitación ${s.codigo}`, s.id === foco?.id ? 'Pulsa una cama para ver sus acciones.' : 'Selecciónala para acercarte a ella.')
+    } else {
+      tip.hide()
+    }
+  }
+  const alSalir = () => {
+    tip.hide()
+    setEncima(null)
   }
 
+  const estados = camas.map((c) => porCama.get(c.id).estado)
+  const ocupadas = estados.filter((e) => OCUPADA.includes(e)).length
+  const libres = estados.filter((e) => e === 'libre').length
+  const lectura = [
+    `${camas.length} camas`,
+    `${ocupadas} ocupadas`,
+    `${libres} libres`,
+    foco ? `en ${foco.codigo}` : null,
+    `giro ${Math.round(camara.azimut)}°`,
+    `${camara.zoom.toFixed(1)}×`,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <div
-      className={`mapa-lienzo escena3d${escena.arrastrando ? ' escena3d--arrastrando' : ''}`}
-      ref={ref}
-      {...escena.lienzo}
-      aria-label="Mapa de camas en 3D. Flechas para girar e inclinar, más y menos para acercar, Esc para ver todo."
-    >
-      <svg
-        className="plano-svg"
-        width={tamano.ancho}
-        height={tamano.alto}
-        role="img"
-        aria-label="Mapa de camas"
-        onPointerMove={(e) => (escena.mover(e) ? tip.hide() : alPasar(e))}
-        onPointerLeave={tip.hide}
-        {...escena.svg}
+    <figure className="figura3d">
+      <figcaption className="figura3d__fila">
+        <span className="figura3d__fig">Fig. 1</span>
+        <span>{titulo}</span>
+      </figcaption>
+      <div
+        className={`mapa-lienzo escena3d${escena.arrastrando ? ' escena3d--arrastrando' : ''}`}
+        ref={ref}
+        {...escena.lienzo}
+        aria-label="Plano de camas en 3D. Flechas para girar e inclinar, más y menos para acercar, Esc para ver todo. La vista Tarjetas lista las mismas camas."
       >
-        <Rayado />
-        {tamano.ancho > 0 && (
-          <>
-            {orden.map((z) => {
-              const x1 = z.x + z.ancho
-              const y1 = z.y + z.alto
-              const habitacion = z.tipo === 'habitacion'
-              const propias = camas
-                .filter((c) => c.zonaId === z.id)
-                .map((c) => ({ c, r: rectCama(c, z) }))
-                .sort(deAtrasAdelante(vista, ({ r }) => [r.x + r.ancho / 2, r.y + r.alto / 2]))
-              return (
-                <g key={z.id} className={`escena3d__zona${atenuada(z.id)}`} {...(habitacion ? { 'data-zona': z.id } : {})}>
-                  <polygon
-                    className={`plano-zona plano-zona--${z.tipo}${foco?.id === z.id ? ' es-seleccion' : ''}`}
-                    points={poligono([[z.x, z.y, 0], [x1, z.y, 0], [x1, y1, 0], [z.x, y1, 0]])}
-                    {...(habitacion ? { 'data-codigo': z.codigo } : {})}
-                  />
-                  {habitacion && murosDelFondo(z, vista).map((m) => (
-                    <polygon key={m.clave} className={`plano-muro${m.lateral ? ' plano-muro--lateral' : ''}`} pointerEvents="none" points={m.puntos} />
-                  ))}
-                  {propias.map(({ c, r }) => (
-                    <g key={c.id} data-cama={c.id} data-zona={z.id} className={claseCama(c.id, 'plano-cama3d')}>
-                      <CamaIsometrica r={r} rotacion={c.rotacion} vista={vista} fuera={porCama.get(c.id).estado === 'fuera'} />
-                    </g>
-                  ))}
-                </g>
-              )
-            })}
-            {orden.filter((z) => z.tipo === 'habitacion').map((z) => {
-              /* Sobre el muro del fondo, donde no choca con el rótulo de las camas. */
-              const [px, py] = sobreElFondo(z, vista, ALTO_MURO + 0.25)
-              return (
-                <text key={z.id} className={`plano-rotulo plano-rotulo--iso escena3d__zona${atenuada(z.id)}`} x={px} y={py} textAnchor="middle" pointerEvents="none">
-                  {z.codigo}
-                </text>
-              )
-            })}
-            {[...camas].sort(deAtrasAdelante(vista, centroCama)).map((c) => {
-              const [cx, cy] = centroCama(c)
-              const [px, py] = punto(cx, cy, 1.05)
-              const info = porCama.get(c.id)
-              return (
-                <g key={c.id} data-cama={c.id} data-zona={c.zonaId} className={`mapa-etiqueta escena3d__zona${atenuada(c.zonaId)}`}>
-                  <IconoEstado x={px - 24} y={py - 10} nombre={iconoDe(info)} lado={11} />
-                  <text className="mapa-cama__codigo mapa-cama__codigo--iso" x={px + 7} y={py} textAnchor="middle">{c.codigo}</text>
-                </g>
-              )
-            })}
-          </>
-        )}
-      </svg>
-      {tamano.ancho > 0 && <ControlesCamara controles={escena.controles} />}
-    </div>
+        <canvas
+          ref={lienzo}
+          className="plano-svg escena3d__canvas"
+          style={{ width: tamano.ancho, height: tamano.alto }}
+          role="img"
+          aria-label={`Plano 3D de ${titulo}: ${lectura}`}
+          onPointerMove={alPasar}
+          onPointerLeave={alSalir}
+          {...escena.superficie}
+        />
+        {tamano.ancho > 0 && <ControlesCamara {...escena.controles} />}
+      </div>
+      <div className="figura3d__fila">
+        <span>Arrastra para girar · Mayús o clic derecho para mover · rueda para acercar · pulsa una habitación</span>
+        <output className="figura3d__lectura" aria-live="polite">{lectura}</output>
+      </div>
+    </figure>
   )
 }

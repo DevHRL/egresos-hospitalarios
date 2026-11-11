@@ -97,8 +97,9 @@ previa. Si un código nuevo ya lo usa otra cama, no se aplica. Cada cama se
 puede renombrar a mano, y al renombrar una habitación sus camas con ese
 prefijo lo siguen. Son medidas de trabajo para dibujar: antes de usarlas para
 decidir capacidad se validan con Infraestructura contra la norma técnica de
-infraestructura hospitalaria del MINSA. El editor avisa cuando dos camas
-quedan más juntas que el estándar, sin impedirlo: el plano refleja lo que hay.
+infraestructura hospitalaria del MINSA. La validación del plano (`dominio/plano.js`)
+señala cuando dos camas quedan más juntas que el estándar, sin impedirlo: el plano
+refleja lo que hay.
 
 ## Estados del puesto de cama
 

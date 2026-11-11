@@ -19,7 +19,10 @@ def falla(mensaje: str):
 
 
 SISTEMA = {"id": "sistema", "rol": "sistema", "servicios": []}
-ENFERMERIA = ("enfermeria", "tecnico", "jefatura")
+# Desde el 2026-11-11: el piso controla a su paciente; Estadística ya no
+# registra movimientos por él. La cuenta del departamento solo designa camas.
+ENFERMERIA = ("enfermeria",)
+CENSO = ("enfermeria", "jefatura")
 ESTADISTICA = ("tecnico", "jefatura")
 TRASLADO_NO_INCORPORADO = "traslado_no_incorporado"
 ORIGENES = ("consulta_externa", "emergencia", "referencia", "otro_servicio")
@@ -27,7 +30,7 @@ ORIGENES = ("consulta_externa", "emergencia", "referencia", "otro_servicio")
 PERMISOS = {
     "orden/registrar": ("admision",),
     "orden/anular": ("admision",),
-    "ingreso/confirmar": ENFERMERIA,
+    "ingreso/confirmar": ("departamento",),
     "ingreso/previo": ENFERMERIA,
     "ingreso/corregir": ESTADISTICA,
     "traslado/registrar": ENFERMERIA,
@@ -43,8 +46,8 @@ PERMISOS = {
     "mant/retirar": ("mantenimiento",),
     "mant/resolver": ("mantenimiento",),
     "mant/entregar": ("mantenimiento",),
-    "censo/cerrar": ENFERMERIA,
-    "censo/nota": ENFERMERIA,
+    "censo/cerrar": CENSO,
+    "censo/nota": CENSO,
     "censo/reabrir": ("jefatura",),
     "hc/recibir": ESTADISTICA,
     "hc/devolver": ESTADISTICA,
@@ -59,7 +62,7 @@ PERMISOS = {
 DESCRIPCION = {
     "orden/registrar": "Registró una orden de hospitalización",
     "orden/anular": "Anuló una orden de hospitalización",
-    "ingreso/confirmar": "Confirmó cama e ingreso",
+    "ingreso/confirmar": "Designó habitación y cama",
     "ingreso/previo": "Registró un paciente del censo inicial",
     "ingreso/corregir": "Corrigió la fecha de ingreso",
     "traslado/registrar": "Registró un traslado",
@@ -121,7 +124,7 @@ class Ctx:
     # ── Comprobaciones ─────────────────────────────────────────────────
 
     def asegurar_servicio(self, servicio: str) -> None:
-        if self.cuenta["rol"] == "enfermeria" and servicio not in self.cuenta["servicios"]:
+        if self.cuenta["rol"] in ("enfermeria", "departamento") and servicio not in self.cuenta["servicios"]:
             falla("Esta cuenta solo opera las camas de su servicio.")
 
     def asegurar_fecha(self, f) -> None:
@@ -220,6 +223,15 @@ class Ctx:
             )
         ]
 
+    def departamentos_con_camas(self) -> list[str]:
+        return [
+            f["id"]
+            for f in self.todos(
+                """SELECT DISTINCT s.departamento_id AS id FROM servicio s JOIN cama c ON c.servicio_id = s.id AND c.activa
+                   WHERE s.fecha_arranque IS NOT NULL ORDER BY 1"""
+            )
+        ]
+
     def egreso_de(self, h_id):
         return self.uno(
             """SELECT e.*, p.sexo, p.fecha_nacimiento, p.n_hc, texto_local(e.fecha_hora) AS fecha_texto
@@ -291,8 +303,9 @@ def _sin_hospitalizacion_abierta(c: Ctx, paciente: int) -> None:
 
 
 def orden_registrar(c: Ctx, d: dict) -> str:
-    if d.get("servicioId") not in c.servicios_con_camas():
-        falla("Elige el área de hospitalización.")
+    """Admisión envía al paciente a un departamento; la cama la designa el departamento."""
+    if d.get("departamentoId") not in c.departamentos_con_camas():
+        falla("Elige el departamento de hospitalización.")
     if d.get("origen") not in ORIGENES:
         falla("Indica por dónde llega el paciente.")
     if d["origen"] == "emergencia" and not texto_de(d.get("enviadaPor")):
@@ -305,14 +318,14 @@ def orden_registrar(c: Ctx, d: dict) -> str:
         falla("Ese paciente ya tiene una orden de hospitalización pendiente.")
     _sin_hospitalizacion_abierta(c, paciente)
     c.ejec(
-        """INSERT INTO orden_hospitalizacion (paciente_id, origen, servicio_id, servicio_procedencia_id, fecha_hora, medico_ordena,
+        """INSERT INTO orden_hospitalizacion (paciente_id, origen, departamento_id, servicio_procedencia_id, fecha_hora, medico_ordena,
              diagnostico_ingreso, enviada_por, estado, registrada_por)
-           VALUES (:p, :origen, :s, :proc, desde_local(:ahora), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), 'pendiente', :cuenta)""",
-        p=paciente, origen=d["origen"], s=d["servicioId"], proc=procedencia if d["origen"] == "otro_servicio" else None, ahora=c.ahora,
+           VALUES (:p, :origen, :dep, :proc, desde_local(:ahora), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), 'pendiente', :cuenta)""",
+        p=paciente, origen=d["origen"], dep=d["departamentoId"], proc=procedencia if d["origen"] == "otro_servicio" else None, ahora=c.ahora,
         medico=texto_de(d.get("medicoOrdena")), dx=texto_de(d.get("diagnosticoIngreso")), env=texto_de(d.get("enviadaPor")), cuenta=c.cuenta["id"],
     )
     hc = c.valor("SELECT n_hc FROM paciente WHERE id = :p", p=paciente)
-    return f"HC {hc} a {d['servicioId']}"
+    return f"HC {hc} a {d['departamentoId']}"
 
 
 def orden_anular(c: Ctx, d: dict) -> str:
@@ -327,6 +340,8 @@ def orden_anular(c: Ctx, d: dict) -> str:
 
 
 def ingreso_confirmar(c: Ctx, d: dict) -> str:
+    """El departamento designa habitación y cama. La cama define el área (Medicina B o
+    Intermedios) y desde ese momento el piso controla al paciente."""
     o = c.uno(
         "SELECT *, texto_local(fecha_hora) AS fecha_texto FROM orden_hospitalizacion WHERE id = :o",
         o=id_de(d.get("ordenId")),
@@ -335,11 +350,14 @@ def ingreso_confirmar(c: Ctx, d: dict) -> str:
         falla("La orden ya no está pendiente.")
     cama = c.cama(d.get("camaId"))
     if not cama:
-        falla("Elige la cama.")
+        falla("Elige la habitación y la cama.")
+    servicio = cama["servicio_id"]
+    if c.valor("SELECT departamento_id FROM servicio WHERE id = :s", s=servicio) != o["departamento_id"]:
+        falla("La cama debe ser del departamento al que Admisión envió al paciente.")
+    c.asegurar_servicio(servicio)
+    c.arranque(servicio)
     f = d.get("fechaHora")
-    c.asegurar_servicio(o["servicio_id"])
-    c.asegurar_cama_del_servicio(cama, o["servicio_id"], "La cama debe ser del área indicada por Admisión.")
-    c.asegurar_editable(o["servicio_id"], f)
+    c.asegurar_editable(servicio, f)
     if f < o["fecha_texto"]:
         falla("La hora de ingreso no puede ser anterior a la orden de Admisión.")
     c.asegurar_cama_lista(cama)
@@ -348,9 +366,9 @@ def ingreso_confirmar(c: Ctx, d: dict) -> str:
            VALUES (:p, :o, :origen, desde_local(:f), :dx) RETURNING id""",
         p=o["paciente_id"], o=o["id"], origen=o["origen"], f=f, dx=o["diagnostico_ingreso"],
     )
-    c.ejec("UPDATE orden_hospitalizacion SET estado = 'ingresada' WHERE id = :o", o=o["id"])
-    c.agregar_movimiento(h, "ingreso", f, cama["id"], o["servicio_id"])
-    return f"Cama {cama['codigo']}"
+    c.ejec("UPDATE orden_hospitalizacion SET estado = 'ingresada', servicio_id = :s WHERE id = :o", s=servicio, o=o["id"])
+    c.agregar_movimiento(h, "ingreso", f, cama["id"], servicio)
+    return f"Cama {cama['codigo']} en {servicio}"
 
 
 def ingreso_previo(c: Ctx, d: dict) -> str:

@@ -8,8 +8,6 @@ from app.config import es_demo, url_owner
 from app.acciones import guardar_censo
 from semillas.cargar_maestros import cargar as cargar_maestros, exportar
 
-ARRANQUE_UCI = "2026-11-08"
-UCI = ("cuidados-criticos", "uci-cirugia", "uci-pediatria")
 TABLAS = (
     "auditoria, bitacora, parametro, renoxi_carga, ajuste_periodo, indicador_mes_cerrado, periodo, dotacion_detalle, dotacion_version, "
     "conteo_unidad_diario, censo_nota, censo_detalle, censo_diario, correccion_movimiento, control_hc, diagnostico_egreso, egreso, "
@@ -41,7 +39,7 @@ def cargar(conexion, datos: dict | None = None) -> None:
     conexion.execute(
         text("UPDATE servicio SET fecha_arranque = CAST(:d AS date) WHERE id IN ('medicina-b', 'medicina-intermedios')"), {"d": e["arranque"]}
     )
-    conexion.execute(text("UPDATE servicio SET fecha_arranque = CAST(:d AS date) WHERE id = ANY(:s)"), {"d": ARRANQUE_UCI, "s": list(UCI)})
+    # UCI no está en el prototipo desde el 2026-11-11: un traslado a UCI cierra al salir del piso.
     conexion.execute(
         text("""INSERT INTO parametro (clave, vigente_desde, valor) VALUES ('reloj_demo', DATE '2000-01-01', CAST(:v AS jsonb))
                 ON CONFLICT (clave, vigente_desde) DO UPDATE SET valor = EXCLUDED.valor"""),
@@ -59,10 +57,10 @@ def cargar(conexion, datos: dict | None = None) -> None:
     for o in e["ordenes"]:
         ordenes[o["id"]] = _insertar(
             conexion,
-            """INSERT INTO orden_hospitalizacion (paciente_id, origen, servicio_id, fecha_hora, medico_ordena, diagnostico_ingreso,
+            """INSERT INTO orden_hospitalizacion (paciente_id, origen, departamento_id, servicio_id, fecha_hora, medico_ordena, diagnostico_ingreso,
                  enviada_por, estado, registrada_por)
-               VALUES (:p, :origen, :s, desde_local(:f), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), :estado, 'sistema') RETURNING id""",
-            p=pacientes[o["pacienteId"]], origen=o["origen"], s=o["servicioId"], f=o["fechaHora"], medico=o["medicoOrdena"],
+               VALUES (:p, :origen, :dep, :s, desde_local(:f), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), :estado, 'sistema') RETURNING id""",
+            p=pacientes[o["pacienteId"]], origen=o["origen"], dep=o["departamentoId"], s=o["servicioId"], f=o["fechaHora"], medico=o["medicoOrdena"],
             dx=o["diagnosticoIngreso"], env=o["enviadaPor"], estado=o["estado"],
         )
     for h in e["hospitalizaciones"]:

@@ -5,8 +5,8 @@ import { MODULOS, cuentaPorId, CUENTAS } from './datos/cuentas.js'
 import { cambiarCuenta, cerrarCensosPendientes, cerrarSesion, conectar, despachar, haySesion, moverReloj, reiniciarDemo, useEstado, useSinConexion } from './datos/tienda.js'
 import { ordenesPendientes } from './datos/admision.js'
 import { mesDe, proximaHora, sumarDias, sumarHoras, verFechaHora } from './dominio/tiempo.js'
-import { ContextoApp, useApp } from './paneles/comun.jsx'
-import { Acceso, CuentasBitacora, Recorrido } from './paneles/prototipo/Prototipo.jsx'
+import { ContextoApp } from './paneles/comun.jsx'
+import { Acceso, CuentasBitacora } from './paneles/prototipo/Prototipo.jsx'
 import { Ordenes } from './paneles/admision/Ordenes.jsx'
 import { MapaCamas } from './paneles/camas/MapaCamas.jsx'
 import { MovimientosDia } from './paneles/camas/MovimientosDia.jsx'
@@ -17,15 +17,8 @@ import { Validacion } from './paneles/estadistica/Validacion.jsx'
 import { Consolidado, Indicadores, Renoxi, Tablero } from './paneles/reportes/Reportes.jsx'
 import { OrdenesCama } from './paneles/mantenimiento/OrdenesCama.jsx'
 import { BuscarPaciente } from './paneles/pacientes/BuscarPaciente.jsx'
-import { EditorPlano } from './paneles/plano/EditorPlano.jsx'
-
-function PanelPlano() {
-  const { estado } = useApp()
-  return <EditorPlano planoInicial={estado.plano} />
-}
 
 const PANELES = {
-  recorrido: Recorrido,
   ordenes: Ordenes,
   mapa: MapaCamas,
   movimientos: MovimientosDia,
@@ -40,7 +33,6 @@ const PANELES = {
   tablero: Tablero,
   cuentas: CuentasBitacora,
   pacientes: BuscarPaciente,
-  plano: PanelPlano,
 }
 
 /* Lo que espera a cada cuenta, para el contador del menú. */
@@ -49,9 +41,11 @@ function pendientes(estado, cuenta) {
   const camasDe = (o) => cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId)
   return {
     ordenes: cuenta.rol === 'admision' ? estado.ordenes.filter((o) => o.estado === 'pendiente').length : 0,
-    mapa: cuenta.rol === 'enfermeria'
-      ? ordenesPendientes(estado, cuenta.servicios).length + estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)).length + estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && camasDe(o)).length
-      : 0,
+    mapa: cuenta.rol === 'departamento'
+      ? ordenesPendientes(estado, cuenta.servicios).length
+      : cuenta.rol === 'enfermeria'
+        ? estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)).length + estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && camasDe(o)).length
+        : 0,
     completado: egresos.filter((h) => ['pendiente_hc', 'observado'].includes(h.egreso.estado)).length,
     validacion: egresos.filter((h) => h.egreso.estado === 'completo').length,
     mantenimiento: estado.ordenesCama.filter((o) => ['pendiente_retiro', 'en_reparacion', 'lista_entrega'].includes(o.estado)).length,
@@ -81,7 +75,7 @@ export default function App() {
   const estado = useEstado()
   const sinConexion = useSinConexion()
   const [cuenta, setCuenta] = useState(leerSesion)
-  const [modulo, setModulo] = useState('recorrido')
+  const [modulo, setModulo] = useState(null)
   const [toast, setToast] = useState(null)
   const cuentaId = cuenta?.id ?? null
 
@@ -96,17 +90,17 @@ export default function App() {
     return conectar(salir)
   }, [cuentaId])
 
-  const entrar = async (id, destino = 'recorrido') => {
+  /* Al entrar, cada cuenta abre en su primer módulo: el plano 3D. */
+  const entrar = async (id) => {
     if (cuenta && cuenta.id !== id) await cambiarCuenta(id)
     guardarSesion(id)
     setCuenta(cuentaPorId(id))
-    setModulo(destino)
+    setModulo(null)
   }
 
   const contexto = useMemo(() => ({
     estado,
     cuenta,
-    ir: entrar,
     hacer: async (tipo, datos = {}, aviso) => {
       const mensaje = await despachar({ tipo, ...datos })
       if (mensaje) setToast(mensaje)

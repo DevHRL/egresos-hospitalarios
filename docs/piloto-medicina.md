@@ -35,7 +35,7 @@ Cuentas: una por servicio (Medicina A, Medicina B, Medicina Intermedios).
 
 | Qué | Quién lo provee | Bloquea |
 |---|---|---|
-| Plano de Medicina dibujado en el **editor de plano** (`frontend/`) a partir del mapeo: habitaciones, camas al estándar y servicio de cada habitación. Se guarda como archivo JSON | Equipo del proyecto | Maestro de habitaciones y camas |
+| Plano de Medicina a partir del mapeo: habitaciones, camas al estándar y servicio de cada habitación. Viene precargado en `frontend/src/app/datos/planos/` (el editor se retiró el 2026-11-11, decisión 0007) | Equipo del proyecto | Maestro de habitaciones y camas |
 | Lista de médicos de Medicina que dan altas | Jefatura de Medicina o Estadística | Formulario de egreso |
 | Catálogo CIE-10 | MINSA (público) | Diagnóstico de ingreso opcional |
 | Formato actual del censo de Medicina (en blanco, sin datos) | Enfermería de Medicina | Impresión del censo igual al papel |
@@ -68,7 +68,7 @@ Cuentas: una por servicio (Medicina A, Medicina B, Medicina Intermedios).
 
 | Semana | Trabajo |
 |---|---|
-| 1 | Dibujar el plano de Medicina en el editor (ya disponible) y validarlo en sala con la jefa de enfermería |
+| 1 | Validar en sala, con la jefa de enfermería, el plano precargado de Medicina en la vista 3D |
 | 2-4 | Desarrollo: maestros, padrón, ingreso/egreso/traslado, censo, plano con estados |
 | 5 | Pruebas con datos ficticios en la PC de Medicina; ajustes de pantallas con enfermería |
 | 6 | Capacitación por turnos |

@@ -1,4 +1,4 @@
-/* Cámara de las vistas 3D (editor de plano y mapa de camas). Solo cálculo:
+/* Cámara del plano 3D de camas (se pinta en canvas, ver escena3d.js). Solo cálculo:
    sin React ni DOM, para probarla con `node --test`.
 
    La cámara es { azimut, elevacion, zoom, centro: { x, y } }:
@@ -89,10 +89,44 @@ export function proyector(camara, area, base) {
     const [px, py] = g.plano(x, y, z)
     return [area.cx + (px - cx0) * escala, area.cy + (py - cy0) * escala]
   }
+  /* Técnica de figura isométrica (ai-iso-skill): lo que se dibuja plano en
+     coordenadas locales (en metros) cae sobre un plano 3D con una sola matriz
+     [a, b, c, d, e, f], la de `setTransform` del canvas y `matrix()` de SVG. El
+     plano parte de O con los ejes U y V. Como la proyección es afín, basta
+     restar puntos. Se usa para el texto pintado en muros y pisos. */
+  const plano = (O, U, V) => {
+    const [ox, oy] = punto(...O)
+    const [ux, uy] = punto(O[0] + U[0], O[1] + U[1], O[2] + U[2])
+    const [vx, vy] = punto(O[0] + V[0], O[1] + V[1], O[2] + V[2])
+    return [ux - ox, uy - oy, vx - ox, vy - oy, ox, oy]
+  }
+  /* Plano del piso centrado en (x, y) con el giro que deja el texto derecho
+     y de izquierda a derecha en pantalla, mire de donde se mire. */
+  const planoLegible = (x, y, z = 0) => {
+    const ejes = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+    const [ux, uy] = ejes.reduce((mejor, e) => {
+      const avance = (u) => punto(x + u[0], y + u[1], z)[0] - punto(x, y, z)[0]
+      return avance(e) > avance(mejor) ? e : mejor
+    })
+    return plano([x, y, z], [ux, uy, 0], [-uy, ux, 0])
+  }
   return {
     escala,
     punto,
-    poligono: (puntos) => puntos.map((p) => punto(...p).join(',')).join(' '),
+    plano,
+    planoLegible,
+    /* Polígono en pantalla como lista plana [x0, y0, x1, y1, …]. Sin arreglos
+       intermedios: se llama miles de veces por cuadro. */
+    poligono: (puntos) => {
+      const salida = []
+      for (let i = 0; i < puntos.length; i++) {
+        const [x, y, z = 0] = puntos[i]
+        const xr = x * g.cos - y * g.sin
+        const yr = x * g.sin + y * g.cos
+        salida.push(area.cx + (xr - cx0) * escala, area.cy + (yr * g.sinE - z * g.cosE - cy0) * escala)
+      }
+      return salida
+    },
     profundidad: g.profundidad,
     /* Una cara vertical se ve si su normal (hacia afuera) apunta a quien mira. */
     mira: (nx, ny) => nx * g.sin + ny * g.cos > 1e-9,
@@ -151,32 +185,47 @@ export function interpolar(a, b, t) {
   }
 }
 
-/* Muros del fondo de una habitación: los lados cuya cara interior mira a
-   quien observa. Los del frente no se dibujan (corte tipo maqueta), para que
-   no tapen las camas. */
-export function murosDelFondo(zona, vista, alto = ALTO_MURO) {
-  const x1 = zona.x + zona.ancho
-  const y1 = zona.y + zona.alto
-  const lados = [
-    { normal: [0, -1], a: [zona.x, zona.y], b: [x1, zona.y] },
-    { normal: [-1, 0], a: [zona.x, zona.y], b: [zona.x, y1] },
-    { normal: [0, 1], a: [zona.x, y1], b: [x1, y1] },
-    { normal: [1, 0], a: [x1, zona.y], b: [x1, y1] },
+/* Muros del fondo de una habitación: los lados cuya cara interior mira a quien
+   observa, como cajas finas por dentro del borde ({ x0, x1, y0, y1 }). Los del
+   frente no se dibujan (corte tipo maqueta), para que no tapen las camas. */
+export function murosDelFondo(zona, vista, grosor = 0.1) {
+  const [x0, y0, x1, y1] = [zona.x, zona.y, zona.x + zona.ancho, zona.y + zona.alto]
+  return [
+    { normal: [0, -1], cajon: [x0, x1, y0, y0 + grosor] },
+    { normal: [-1, 0], cajon: [x0, x0 + grosor, y0, y1] },
+    { normal: [0, 1], cajon: [x0, x1, y1 - grosor, y1] },
+    { normal: [1, 0], cajon: [x1 - grosor, x1, y0, y1] },
   ]
-  return lados
-    .filter((l) => !vista.mira(...l.normal))
-    .map((l) => ({
-      clave: l.normal.join(','),
-      lateral: l.normal[0] !== 0,
-      puntos: vista.poligono([[...l.a, 0], [...l.b, 0], [...l.b, alto], [...l.a, alto]]),
-    }))
+    .filter((m) => !vista.mira(...m.normal))
+    .map((m) => ({ ...m, clave: m.normal.join(',') }))
 }
 
-/* Punto sobre el muro del fondo de una habitación, para su rótulo. */
-export function sobreElFondo(zona, vista, z) {
-  const [dx, dy] = vista.haciaCamara
-  const mitad = (zona.ancho / 2) * Math.abs(dx) + (zona.alto / 2) * Math.abs(dy)
-  return vista.punto(zona.x + zona.ancho / 2 - dx * mitad, zona.y + zona.alto / 2 - dy * mitad, z)
+/* Plano para rotular una habitación sobre la cara interior de su muro del
+   fondo más visible, centrado a media altura y con el texto de izquierda a
+   derecha. Devuelve null si ningún muro se ve lo bastante (vista cenital). */
+export function rotuloEnMuro(zona, vista, alto = ALTO_MURO, grosor = 0.1) {
+  const [x0, y0, x1, y1] = [zona.x, zona.y, zona.x + zona.ancho, zona.y + zona.alto]
+  const caras = {
+    '0,-1': [[x0, y0 + grosor], [x1, y0 + grosor]],
+    '-1,0': [[x0 + grosor, y0], [x0 + grosor, y1]],
+    '0,1': [[x0, y1 - grosor], [x1, y1 - grosor]],
+    '1,0': [[x1 - grosor, y0], [x1 - grosor, y1]],
+  }
+  const z = alto / 2
+  let mejor = null
+  for (const m of murosDelFondo(zona, vista, grosor)) {
+    const [a, b] = caras[m.clave]
+    const avance = vista.punto(b[0], b[1], z)[0] - vista.punto(a[0], a[1], z)[0]
+    const alzado = vista.punto(a[0], a[1], 0)[1] - vista.punto(a[0], a[1], alto)[1]
+    if (alzado < 6) continue
+    if (!mejor || Math.abs(avance) > Math.abs(mejor.avance)) mejor = { a, b, avance }
+  }
+  if (!mejor) return null
+  const { a, b, avance } = mejor
+  const largo = Math.hypot(b[0] - a[0], b[1] - a[1])
+  const signo = avance >= 0 ? 1 : -1
+  const U = [((b[0] - a[0]) / largo) * signo, ((b[1] - a[1]) / largo) * signo, 0]
+  return vista.plano([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, z], U, [0, 0, -1])
 }
 
 /* Orden de dibujo: primero lo que queda lejos. */

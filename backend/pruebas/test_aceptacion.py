@@ -32,7 +32,7 @@ def test_motor_16(conn):
     assert uno(conn, "SHOW server_version_num").startswith("16")
 
 
-@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 2), ("zona", 40), ("cama", 45), ("activo_cama", 45), ("cuenta", 13), ("dotacion_version", 2)])
+@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 1), ("zona", 37), ("cama", 29), ("activo_cama", 29), ("cuenta", 7), ("dotacion_version", 2)])
 def test_maestros(conn, tabla, total):
     assert uno(conn, f"SELECT count(*) FROM {tabla}") == total
 
@@ -40,12 +40,18 @@ def test_maestros(conn, tabla, total):
 def test_camas_por_servicio(conn):
     assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = :s", s=B) == 24
     assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = :s", s=I) == 5
-    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'cuidados-criticos'") == 6
+    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'cuidados-criticos'") == 0
 
 
 def test_dotaciones(conn):
     assert uno(conn, "SELECT sum(n_camas) FROM dotacion_detalle WHERE version_id = 'relacion-249'") == 249
     assert uno(conn, "SELECT sum(n_camas) FROM dotacion_detalle WHERE version_id = 'conteo-fisico-2026'") == 260
+
+
+def test_solo_las_seis_cuentas_del_prototipo_estan_activas(conn):
+    activas = conn.execute(text("SELECT id FROM cuenta WHERE activo AND rol <> 'sistema' ORDER BY id")).scalars().all()
+    assert activas == ["admision", "dep.medicina", "estadistica", "mantenimiento", "medicina.b", "medicina.int"]
+    assert uno(conn, "SELECT rol FROM cuenta WHERE id = 'dep.medicina'") == "departamento"
 
 
 def test_maestros_idempotentes(conn):
@@ -172,7 +178,7 @@ def test_habitacion_sin_servicio(conn):
 
 def test_orden_de_emergencia_sin_enviada_por(conn):
     p = abierta(conn)[1]
-    rechaza(conn, "23514", "INSERT INTO orden_hospitalizacion (paciente_id, origen, servicio_id, fecha_hora, estado, registrada_por) VALUES (:p, 'emergencia', 'medicina-b', now(), 'anulada', 'sistema')", p=p)
+    rechaza(conn, "23514", "INSERT INTO orden_hospitalizacion (paciente_id, origen, departamento_id, servicio_id, fecha_hora, estado, registrada_por) VALUES (:p, 'emergencia', 'medicina', 'medicina-b', now(), 'anulada', 'sistema')", p=p)
 
 
 def test_egreso_hospitalario_sin_condicion(conn):
@@ -194,15 +200,15 @@ def test_dia_censo(conn):
 
 
 def test_auditoria(conn):
-    conn.execute(text("SELECT set_config('app.cuenta_id', 'estadistica.jefe', true), set_config('app.ip', '10.1.2.3', true)"))
+    conn.execute(text("SELECT set_config('app.cuenta_id', 'estadistica', true), set_config('app.ip', '10.1.2.3', true)"))
     conn.execute(text("UPDATE medico SET nombre = 'Cambio' WHERE id = 'med-1'"))
     a = conn.execute(text("SELECT cuenta_id, host(ip), valor_anterior->>'nombre', valor_nuevo->>'nombre' FROM auditoria WHERE tabla = 'medico' AND registro_id = 'med-1' ORDER BY id DESC LIMIT 1")).first()
-    assert tuple(a) == ("estadistica.jefe", "10.1.2.3", "Dra. Demo Salazar", "Cambio")
+    assert tuple(a) == ("estadistica", "10.1.2.3", "Dra. Demo Salazar", "Cambio")
 
 
 def test_rol_lectura(conn):
     conn.execute(text("SET LOCAL ROLE egresos_lectura"))
-    assert uno(conn, "SELECT count(*) FROM v_tablero") == 5
+    assert uno(conn, "SELECT count(*) FROM v_tablero") == 2
     rechaza(conn, "42501", "SELECT * FROM paciente")
 
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Badge, Button, Card, DataTable, FloatingTip, Grid, Icon, SegmentedControl, Stack, StatCard, useFloatingTip } from '@hrl/core-ui'
 import { ESTADOS_CAMA_MAPA, ESTADOS_ORDEN_CAMA, ORIGENES, estadosDeCamas, etiqueta, hospitalizacionPorId, pacientePorId, resumenCamas } from '../../dominio/consultas.js'
 import { edad, estancia, verFechaHora } from '../../dominio/tiempo.js'
@@ -59,16 +59,20 @@ function Tarjetas({ estados, onSeleccionar }) {
   )
 }
 
+/* Lo que espera a esta cuenta: al departamento, los pacientes que envió
+   Admisión; al piso, los traslados que llegan y las camas que devuelve
+   Mantenimiento. */
 function PorAtender({ abrir }) {
   const { estado, cuenta, hacer } = useApp()
-  if (cuenta.rol !== 'enfermeria') return null
-  const ordenes = ordenesPendientes(estado, cuenta.servicios)
-  const traslados = estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino))
-  const camas = estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId))
+  if (!['enfermeria', 'departamento'].includes(cuenta.rol)) return null
+  const departamento = cuenta.rol === 'departamento'
+  const ordenes = departamento ? ordenesPendientes(estado, cuenta.servicios) : []
+  const traslados = departamento ? [] : estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino))
+  const camas = departamento ? [] : estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId))
   const filas = [
     ...ordenes.map((o) => {
       const p = pacientePorId(estado, o.pacienteId)
-      return { clave: o.id, que: 'Ingreso', icono: 'sh-plus', quien: p.nombres, detalle: `HC ${p.hc} · ${etiqueta(ORIGENES, o.origen)}${o.diagnosticoIngreso ? ` · ${o.diagnosticoIngreso}` : ''}`, desde: o.fechaHora, boton: 'Asignar cama', accion: () => abrir({ tipo: 'ingreso', ordenId: o.id }) }
+      return { clave: o.id, que: 'Ingreso', icono: 'sh-plus', quien: p.nombres, detalle: `HC ${p.hc} · ${etiqueta(ORIGENES, o.origen)}${o.diagnosticoIngreso ? ` · ${o.diagnosticoIngreso}` : ''}`, desde: o.fechaHora, boton: 'Designar cama', accion: () => abrir({ tipo: 'ingreso', ordenId: o.id }) }
     }),
     ...traslados.map((t) => {
       const p = pacientePorId(estado, hospitalizacionPorId(estado, t.hospitalizacionId).pacienteId)
@@ -78,7 +82,7 @@ function PorAtender({ abrir }) {
   ]
   if (filas.length === 0) return null
   return (
-    <Card title="Por atender" subtitle="Pacientes y camas que esperan una confirmación de este servicio.">
+    <Card title="Por atender" subtitle={departamento ? 'Pacientes que Admisión envió al departamento. Elige la habitación y la cama, o pulsa una cama libre en el plano.' : 'Traslados y camas que esperan una confirmación de este piso.'}>
       <DataTable
         rowKey={(f) => f.clave}
         rows={filas}
@@ -94,18 +98,37 @@ function PorAtender({ abrir }) {
   )
 }
 
+/* El tooltip del plano vive en su propio componente: así mover el puntero solo
+   vuelve a dibujar el tooltip y no el plano entero. El plano recibe funciones
+   estables que llegan aquí por una ref. */
+function TipAislado({ control }) {
+  const tip = useFloatingTip()
+  useImperativeHandle(control, () => ({ follow: tip.follow, hide: tip.hide }), [tip.follow, tip.hide])
+  return <FloatingTip tip={tip.tip} />
+}
+
+function useTipAislado() {
+  const control = useRef(null)
+  const tip = useMemo(() => ({
+    follow: (...a) => control.current?.follow(...a),
+    hide: () => control.current?.hide(),
+  }), [])
+  return [tip, control]
+}
+
 export function MapaCamas() {
   const { estado, cuenta } = useApp()
   const [vista, setVista] = useState('iso')
   const [seleccion, setSeleccion] = useState(null)
   const [dialogo, setDialogo] = useState(null)
-  const tip = useFloatingTip()
+  const [tip, controlTip] = useTipAislado()
   const servicios = cuenta.servicios
   const estados = useMemo(() => estadosDeCamas(estado, servicios), [estado, servicios])
   const r = resumenCamas(estado, servicios)
   const pendientes = ordenesPendientes(estado, servicios).length
   const cerrar = () => setDialogo(null)
-  const seleccionar = (camaId) => { setSeleccion(camaId); setDialogo({ tipo: 'cama', camaId }) }
+  const seleccionar = useCallback((camaId) => { setSeleccion(camaId); setDialogo({ tipo: 'cama', camaId }) }, [])
+  const texto = useCallback((info) => textoHover(estado, info), [estado])
   const props = { onCerrar: cerrar }
 
   return (
@@ -117,22 +140,22 @@ export function MapaCamas() {
         <StatCard label="Con O2" value={r.conO2} />
         {r.conVM > 0 && <StatCard label="Con VM" value={r.conVM} />}
         <StatCard label="Fuera de servicio" value={r.fuera} severity={r.fuera ? 'suspect' : 'normal'} />
-        <StatCard label="Por recibir" value={pendientes} note="Enviados por Admisión" />
+        <StatCard label="Por designar" value={pendientes} note="Enviados por Admisión al departamento" />
       </Grid>
       <Card
-        title={servicios.map(nombreServicio).join(' e ')}
+        title={servicios.map(nombreServicio).join(' y ')}
         subtitle="Pasa el cursor sobre una cama para ver su resumen y selecciónala para ver sus acciones."
         actions={<SegmentedControl label="Vista" value={vista} options={VISTAS} onChange={setVista} />}
       >
         <Stack gap={3}>
           {vista === 'tarjetas'
             ? <Tarjetas estados={estados} onSeleccionar={seleccionar} />
-            : <VistaMapa plano={estado.plano} estados={estados} servicios={servicios} vista={vista} seleccion={seleccion} onSeleccionar={seleccionar} tip={tip} texto={(info) => textoHover(estado, info)} />}
+            : <VistaMapa plano={estado.plano} estados={estados} servicios={servicios} vista={vista} seleccion={seleccion} onSeleccionar={seleccionar} tip={tip} texto={texto} />}
           <Leyenda />
         </Stack>
       </Card>
       <PorAtender abrir={setDialogo} />
-      <FloatingTip tip={tip.tip} />
+      <TipAislado control={controlTip} />
       {dialogo?.tipo === 'cama' && <DialogoCama camaId={dialogo.camaId} onCerrar={cerrar} abrir={setDialogo} />}
       {dialogo?.tipo === 'ingreso' && <DialogoIngreso ordenId={dialogo.ordenId} camaId={dialogo.camaId} {...props} />}
       {dialogo?.tipo === 'censoInicial' && <DialogoCensoInicial camaId={dialogo.camaId} {...props} />}

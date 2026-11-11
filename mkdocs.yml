@@ -25,5 +25,6 @@ nav:
       - 0004 · Plano 2D e isométrico: decisiones/0004-vista-isometrica-svg.md
       - 0005 · Ingreso obligatorio y reemplazo de Aletheia: decisiones/0005-ingreso-obligatorio-reemplazo-aletheia.md
       - 0006 · Una credencial por área: decisiones/0006-credencial-por-area.md
+      - 0007 · Orden al departamento y seis cuentas: decisiones/0007-orden-al-departamento-seis-cuentas.md
 plugins:
   - techdocs-core
