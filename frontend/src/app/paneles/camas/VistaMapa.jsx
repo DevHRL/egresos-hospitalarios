@@ -5,6 +5,7 @@ import { useTamano } from '../plano/comun.js'
 import { servicioPorId } from '../../datos/catalogo.js'
 import { ControlesCamara, useCamara3d } from '../plano/Escena3D.jsx'
 import { OCUPADA, bajoElPuntero, construirEscena } from '../plano/escena3d.js'
+import { azimutDesdePasillo } from '../plano/camara3d.js'
 import { pintar, resolverPaleta } from '../plano/pintura3d.js'
 
 /* El plano ya cargado (no se edita desde la interfaz), con cada cama pintada
@@ -16,6 +17,8 @@ import { pintar, resolverPaleta } from '../plano/pintura3d.js'
 
 const MARGEN = 18
 const FUNDIDO_MS = 500
+/* Inclinación al enfocar: lo bastante alta para ver dentro de la habitación. */
+const ELEVACION_FOCO = 50
 
 /* A lo largo: las habitaciones del servicio. A lo ancho: todo el piso, para
    orientarse con el corredor y la estación de enfermeras. */
@@ -175,11 +178,26 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
   const sensibles = useRef([])
   const tamano = useTamano(ref)
   const paleta = usePaleta(ref)
-  const [focoId, setFocoId] = useState(null)
+  /* La cama elegida (aquí o en la lista) manda; sin cama, una habitación
+     pulsada en el plano. */
+  const [salaId, setSalaId] = useState(null)
   const [encima, setEncima] = useState(null)
   const [iconos, setIconos] = useState(0)
+  const camaElegida = seleccion ? camas.find((c) => c.id === seleccion) : null
+  const focoId = camaElegida?.zonaId ?? salaId
   const foco = zonas.find((z) => z.id === focoId && z.tipo === 'habitacion') ?? null
   const atenuacion = useAtenuacion(Boolean(foco))
+  /* Se gira para mirar la habitación desde el pasillo y se centra entre la
+     habitación y la cama elegida. */
+  const objetivo = useMemo(() => {
+    if (!foco) return null
+    const azimut = azimutDesdePasillo(foco, zonas) ?? undefined
+    const centroSala = { x: foco.x + foco.ancho / 2, y: foco.y + foco.alto / 2 }
+    if (!camaElegida) return { clave: `sala:${foco.id}`, azimut, elevacion: ELEVACION_FOCO, centro: centroSala }
+    const r = rectCama(camaElegida, foco)
+    const centro = { x: (centroSala.x + r.x + r.ancho / 2) / 2, y: (centroSala.y + r.y + r.alto / 2) / 2 }
+    return { clave: `cama:${camaElegida.id}`, azimut, elevacion: ELEVACION_FOCO, centro }
+  }, [foco, camaElegida, zonas])
   const margenes = useMemo(() => ({ arriba: MARGEN, abajo: MARGEN + 40, izquierda: MARGEN, derecha: MARGEN }), [])
 
   const local = (e) => {
@@ -188,13 +206,14 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
   }
   const pulsar = (e) => {
     const s = bajoElPuntero(sensibles.current, ...local(e))
-    if (s?.tipo === 'cama') {
-      setFocoId(s.zonaId)
-      return onSeleccionar(s.id)
-    }
-    setFocoId(s?.tipo === 'zona' ? s.id : null)
+    setSalaId(s?.tipo === 'zona' ? s.id : null)
+    onSeleccionar(s?.tipo === 'cama' ? s.id : null)
   }
-  const escena = useCamara3d({ ref, tamano, caja, margenes, foco, onPulsar: pulsar, onSalirFoco: () => setFocoId(null) })
+  const salir = () => {
+    setSalaId(null)
+    onSeleccionar(null)
+  }
+  const escena = useCamara3d({ ref, tamano, caja, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
   const { vista, camara } = escena
 
   /* Se pinta tras cada cambio de cámara, datos, foco o tema: un solo canvas,

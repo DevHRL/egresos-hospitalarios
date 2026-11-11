@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Tooltip } from '@hrl/core-ui'
 import {
-  acotar, areaLibre, camaraInicial, camaraSobre, escalaBase, interpolar, pantallaAPiso, proyector, zoomHacia,
+  acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, pantallaAPiso, proyector, zoomHacia,
 } from './camara3d.js'
 
 /* Gestos y controles de las vistas 3D. La cuenta está en `camara3d.js`;
@@ -23,7 +23,10 @@ const SIN_MARGENES = { arriba: 16, abajo: 16, izquierda: 16, derecha: 16 }
 
 const reducirMovimiento = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco = null, onPulsar, onSalirFoco }) {
+/* `foco` es la habitación a encuadrar; `objetivo` ({ clave, azimut, elevacion,
+   centro }) dice además desde dónde mirarla y qué centrar. Cada `clave` nueva
+   anima la cámara hasta ahí (girando por el camino más corto). */
+export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco = null, objetivo = null, onPulsar, onSalirFoco }) {
   const [camara, setCamaraEstado] = useState(() => camaraInicial(caja))
   const [arrastrando, setArrastrando] = useState(false)
   const actual = useRef(camara)
@@ -76,13 +79,13 @@ export function useCamara3d({ ref, tamano, caja, margenes = SIN_MARGENES, foco =
   }, [claveCaja])
 
   /* Enfocar una habitación o volver a ver todo, con el giro que haya. */
-  const focoId = foco?.id ?? null
+  const focoId = foco ? `${foco.id}|${objetivo?.clave ?? ''}` : null
   const habiaFoco = useRef(false)
   useEffect(() => {
     if (!tamano.ancho) return
     if (foco) {
       habiaFoco.current = true
-      animarA(camaraSobre(actual.current, foco, area, base))
+      animarA(objetivo ? camaraHacia(actual.current, foco, area, base, objetivo) : camaraSobre(actual.current, foco, area, base))
     } else if (habiaFoco.current) {
       habiaFoco.current = false
       animarA({ ...actual.current, zoom: 1, centro: camaraInicial(caja).centro })

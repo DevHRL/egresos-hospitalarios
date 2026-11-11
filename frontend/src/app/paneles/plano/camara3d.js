@@ -170,6 +170,35 @@ export function camaraSobre(camara, zona, area, base, holgura = 0.72) {
   return acotar({ ...camara, zoom: escala / base, centro: { x: zona.x + zona.ancho / 2, y: zona.y + zona.alto / 2 } })
 }
 
+/* Giro para mirar una habitación desde el pasillo más cercano (su lado
+   abierto), con un poco de ángulo para ver dos muros y las camas de tres
+   cuartos. Sin pasillos devuelve null y se conserva el giro actual. */
+export const SESGO_TRES_CUARTOS = 30
+export function azimutDesdePasillo(zona, zonas) {
+  const cx = zona.x + zona.ancho / 2
+  const cy = zona.y + zona.alto / 2
+  let mejor = null
+  for (const p of zonas) {
+    if (p.tipo !== 'pasillo') continue
+    const px = Math.min(Math.max(cx, p.x), p.x + p.ancho)
+    const py = Math.min(Math.max(cy, p.y), p.y + p.alto)
+    const d = Math.hypot(px - cx, py - cy)
+    if (!mejor || d < mejor.d) mejor = { d, dx: px - cx, dy: py - cy }
+  }
+  if (!mejor || mejor.d < 1e-6) return null
+  /* Quien mira queda hacia (sen az, cos az): se apunta al pasillo. */
+  const az = (Math.atan2(mejor.dx, mejor.dy) * 180) / Math.PI + SESGO_TRES_CUARTOS
+  return normalizarAzimut(az)
+}
+
+/* Cámara que gira hacia una habitación y la encuadra; con `centro`, centra
+   ese punto (por ejemplo, entre la habitación y la cama elegida). */
+export function camaraHacia(camara, zona, area, base, { azimut = camara.azimut, elevacion = camara.elevacion, centro } = {}) {
+  const girada = acotar({ ...camara, azimut, elevacion })
+  const c = camaraSobre(girada, zona, area, base, 0.62)
+  return centro ? { ...c, centro } : c
+}
+
 /* Paso intermedio de una animación (t de 0 a 1). El azimut va por el giro
    más corto. */
 export function interpolar(a, b, t) {
