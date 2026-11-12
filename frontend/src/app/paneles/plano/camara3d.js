@@ -177,36 +177,95 @@ export function camaraHacia(camara, zona, area, base, { azimut = camara.azimut, 
   return centro ? { ...c, centro } : c
 }
 
-/* Paso intermedio de una animación (t de 0 a 1). El azimut va por el giro
-   más corto. */
-export const suavizar = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+/* ── Animación de la cámara ─────────────────────────────────────────── */
 
-/* Con `arco` (0 a ~0.5) el zoom se abre a mitad de camino y vuelve a cerrarse,
-   como quien se aleja un poco para ver a dónde va: así un salto entre
-   habitaciones lejanas se entiende. */
-export function interpolar(a, b, t, { arco = 0 } = {}) {
-  const k = suavizar(t)
-  const giro = ((b.azimut - a.azimut + 540) % 360) - 180
-  const mezcla = (u, v) => u + (v - u) * k
-  const apertura = 1 - arco * Math.sin(Math.PI * t)
-  return {
-    azimut: a.azimut + giro * k,
-    elevacion: mezcla(a.elevacion, b.elevacion),
-    /* El zoom se interpola en escala logarítmica: así acercarse se siente parejo. */
-    zoom: Math.max(ZOOM_MIN, Math.exp(mezcla(Math.log(a.zoom), Math.log(b.zoom))) * apertura),
-    centro: { x: mezcla(a.centro.x, b.centro.x), y: mezcla(a.centro.y, b.centro.y) },
+/* Curva de velocidad: arranca y llega despacio (ease-in-out cúbica). */
+export const suavizar = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2)
+/* Para girar: igual de suave al empezar y al llegar, pero sin picos de velocidad. */
+const suavizarGiro = (t) => (1 - Math.cos(Math.PI * t)) / 2
+const entre = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)))
+const giroCorto = (a, b) => ((b - a + 540) % 360) - 180
+
+/* Curvatura del vuelo: cuánto se aleja para viajar (el valor que usan los
+   mapas, √2 ≈ 1,42). */
+const RHO = 1.42
+/* Velocidad percibida: anchos de pantalla por segundo. */
+const VELOCIDAD = 0.85
+
+/* Vuelo de una cámara a otra con zoom y desplazamiento óptimos (van Wijk y
+   Nuij, «Smooth and efficient zooming and panning», el mismo de los mapas
+   web): se aleja, viaja y se acerca en una sola curva, con velocidad percibida
+   constante. El giro y la inclinación se reparten en la segunda parte del
+   vuelo, para llegar ya mirando la habitación. Un giro sin viaje «respira»:
+   se abre un poco y vuelve.
+
+   `anchoVista` es el ancho visible en metros con zoom 1. Devuelve
+   { duracion (ms), en(t) } con t de 0 a 1. */
+export function vuelo(a, b, anchoVista) {
+  const w0 = anchoVista / a.zoom
+  const w1 = anchoVista / b.zoom
+  const dx = b.centro.x - a.centro.x
+  const dy = b.centro.y - a.centro.y
+  const u1 = Math.hypot(dx, dy)
+  const giro = giroCorto(a.azimut, b.azimut)
+  const inclinacion = b.elevacion - a.elevacion
+
+  let S
+  let ancho
+  let avance
+  if (u1 < w0 * 1e-3) {
+    /* Sin viaje: solo acercarse o alejarse. */
+    S = Math.abs(Math.log(w1 / w0)) / RHO
+    const k = w1 < w0 ? -1 : 1
+    ancho = (s) => w0 * Math.exp(k * RHO * s)
+    avance = () => 0
+  } else {
+    const bi = (wi, signo) => (w1 * w1 - w0 * w0 + signo * RHO ** 4 * u1 * u1) / (2 * wi * RHO * RHO * u1)
+    const r = (x) => Math.log(-x + Math.sqrt(x * x + 1))
+    const r0 = r(bi(w0, 1))
+    const r1 = r(bi(w1, -1))
+    S = (r1 - r0) / RHO
+    ancho = (s) => (w0 * Math.cosh(r0)) / Math.cosh(RHO * s + r0)
+    avance = (s) => ((w0 / (RHO * RHO)) * (Math.cosh(r0) * Math.tanh(RHO * s + r0) - Math.sinh(r0))) / u1
+    if (!Number.isFinite(S)) {
+      S = Math.log(1 + u1 / w0)
+      ancho = (s) => w0 + (w1 - w0) * (s / S)
+      avance = (s) => s / S
+    }
   }
+  const respiro = u1 < w0 * 0.05 && Math.abs(giro) > 1 ? 0.07 * Math.min(1, Math.abs(giro) / 90) : 0
+  const duracionViaje = (S / VELOCIDAD) * 1000
+  const duracionGiro = 800 + 700 * Math.min(1, Math.abs(giro) / 180) + 8 * Math.abs(inclinacion)
+  const duracion = Math.min(2800, Math.max(900, duracionViaje, Math.abs(giro) > 1 || Math.abs(inclinacion) > 1 ? duracionGiro : 0))
+
+  const en = (t) => {
+    if (t >= 1) return b
+    const k = suavizar(t)
+    const s = k * S
+    const w = S > 0 ? ancho(s) : w0
+    const f = S > 0 ? avance(s) : k
+    /* El giro empieza un poco después de despegar y termina al llegar. */
+    const kg = suavizarGiro(entre(t, u1 > w0 * 0.05 ? 0.15 : 0, 1))
+    return {
+      azimut: a.azimut + giro * kg,
+      elevacion: a.elevacion + inclinacion * kg,
+      zoom: Math.max(ZOOM_MIN, (anchoVista / w) * (1 - respiro * Math.sin(Math.PI * t))),
+      centro: { x: a.centro.x + dx * f, y: a.centro.y + dy * f },
+    }
+  }
+  return { duracion, en }
 }
 
-/* Cuánto dura y cuánto se abre el paso de una cámara a otra: más largo si gira
-   más o si viaja más lejos (en anchos de pantalla), siempre entre 0,7 y 1,5 s. */
-export function recorrido(a, b, anchoVisibleMetros) {
-  const giro = Math.abs(((b.azimut - a.azimut + 540) % 360) - 180)
-  const viaje = Math.hypot(b.centro.x - a.centro.x, b.centro.y - a.centro.y) / Math.max(anchoVisibleMetros, 1)
-  const cambioZoom = Math.abs(Math.log(b.zoom / a.zoom))
-  const arco = Math.min(0.45, Math.max(0, viaje - 0.25) * 0.5)
-  const duracion = Math.min(1500, 700 + 400 * Math.min(1, giro / 180) + 450 * Math.min(1, viaje) + 150 * Math.min(1, cambioZoom))
-  return { duracion, arco }
+/* Deriva sutil en reposo: un vaivén lento de giro e inclinación (unos pocos
+   grados, periodos largos y distintos para que no se note el ciclo), que
+   entra de a poco para no dar un salto. `segundos` desde que quedó quieta. */
+export function deriva(camara, segundos) {
+  const entrada = 1 - Math.exp(-segundos / 2)
+  return {
+    ...camara,
+    azimut: camara.azimut + 2.2 * entrada * Math.sin((2 * Math.PI * segundos) / 17),
+    elevacion: camara.elevacion + 0.9 * entrada * Math.sin((2 * Math.PI * segundos) / 23),
+  }
 }
 
 /* Muros del fondo de una habitación: los lados cuya cara interior mira a quien

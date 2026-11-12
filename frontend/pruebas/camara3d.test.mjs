@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  SESGO_TRES_CUARTOS, areaLibre, azimutDesdePasillo, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, murosDelFondo, proyector, recorrido,
+  SESGO_TRES_CUARTOS, areaLibre, azimutDesdePasillo, camaraHacia, camaraInicial, camaraSobre, deriva, escalaBase, murosDelFondo, proyector, vuelo,
 } from '../src/app/paneles/plano/camara3d.js'
 
 const caja = { x0: 0, y0: 0, x1: 40, y1: 12 }
@@ -57,39 +57,63 @@ test('enfocar centra la habitación y la acerca', () => {
   assert.ok(c.zoom > 1)
 })
 
-test('la animación gira por el camino más corto', () => {
+const anchoVista = 1000 / base
+const sala = (x) => ({ ...camaraInicial(caja), zoom: 4, centro: { x, y: 3 } })
+const cuadrosDe = ({ duracion, en }) => {
+  const n = Math.ceil(duracion / 16.7)
+  return Array.from({ length: n + 1 }, (_, i) => en(i / n))
+}
+
+test('el giro va por el camino más corto', () => {
   const a = { ...camaraInicial(caja), azimut: 350 }
-  const b = { ...a, azimut: 10 }
-  const medio = interpolar(a, b, 0.5)
+  const medio = vuelo(a, { ...a, azimut: 10 }, anchoVista).en(0.5)
   cerca(((medio.azimut % 360) + 360) % 360, 0, 'azimut a mitad de camino')
 })
 
-test('el paso entre habitaciones lejanas dura más y se aleja a mitad de camino', () => {
-  const cerca = { ...camaraInicial(caja), zoom: 4, centro: { x: 5, y: 3 } }
-  const vecina = { ...cerca, centro: { x: 6, y: 3 } }
-  const lejana = { ...cerca, azimut: 225, centro: { x: 35, y: 3 } }
-  const ancho = 1000 / (base * 4)
-  const corto = recorrido(cerca, vecina, ancho)
-  const largo = recorrido(cerca, lejana, ancho)
-  assert.equal(corto.arco, 0)
-  assert.ok(largo.arco > 0.2 && largo.arco <= 0.45)
-  assert.ok(corto.duracion >= 700 && largo.duracion <= 1500 && largo.duracion > corto.duracion + 400)
-  const medio = interpolar(cerca, lejana, 0.5, { arco: largo.arco })
-  assert.ok(medio.zoom < 4 * 0.8, `zoom a mitad de camino: ${medio.zoom}`)
+test('entre habitaciones lejanas se aleja, viaja y se vuelve a acercar', () => {
+  const v = vuelo(sala(5), { ...sala(35), azimut: 225 }, anchoVista)
+  const zooms = cuadrosDe(v).map((c) => c.zoom)
+  const minimo = Math.min(...zooms)
+  const iMin = zooms.indexOf(minimo)
+  assert.ok(minimo < 4 * 0.6, `se aleja hasta ${minimo.toFixed(2)}×`)
+  assert.ok(iMin > zooms.length * 0.3 && iMin < zooms.length * 0.7, 'lo más lejos queda a mitad del vuelo')
+  /* Primero se aleja (zoom baja) y al final se acerca (zoom sube). */
+  assert.ok(zooms[Math.floor(zooms.length * 0.2)] < zooms[0] && zooms.at(-1) > zooms[Math.floor(zooms.length * 0.8)])
+  assert.ok(v.duracion > 1500 && v.duracion <= 2800)
+  const cercano = vuelo(sala(5), sala(6), anchoVista)
+  assert.ok(Math.min(...cuadrosDe(cercano).map((c) => c.zoom)) > 4 * 0.85, 'a la habitación vecina casi no se aleja')
 })
 
-test('la animación no salta: de un cuadro a otro cambia poco, y arranca y llega despacio', () => {
-  const a = { ...camaraInicial(caja), zoom: 4, centro: { x: 5, y: 3 } }
-  const b = { ...a, azimut: 225, centro: { x: 35, y: 3 } }
-  const { duracion, arco } = recorrido(a, b, 1000 / (base * 4))
-  const cuadros = Math.ceil(duracion / 16.7)
-  const pasos = Array.from({ length: cuadros + 1 }, (_, i) => interpolar(a, b, i / cuadros, { arco }))
-  const saltoGiro = Math.max(...pasos.slice(1).map((p, i) => Math.abs(p.azimut - pasos[i].azimut)))
-  const saltoCentro = Math.max(...pasos.slice(1).map((p, i) => Math.hypot(p.centro.x - pasos[i].centro.x, p.centro.y - pasos[i].centro.y)))
-  assert.ok(saltoGiro < 6, `giro por cuadro: ${saltoGiro}`)
-  assert.ok(saltoCentro < 1.2, `metros por cuadro: ${saltoCentro}`)
-  /* Suave al empezar y al terminar: el primer y el último paso son mucho menores que el del medio. */
-  const paso = (i) => Math.abs(pasos[i + 1].azimut - pasos[i].azimut)
-  assert.ok(paso(0) < paso(Math.floor(cuadros / 2)) / 10 && paso(cuadros - 1) < paso(Math.floor(cuadros / 2)) / 10)
-  assert.deepEqual([(pasos.at(-1).azimut + 360) % 360, pasos.at(-1).zoom, pasos.at(-1).centro], [225, 4, b.centro])
+test('ningún cuadro salta, y arranca y llega despacio', () => {
+  for (const [a, b] of [[sala(5), { ...sala(35), azimut: 225 }], [sala(5), { ...sala(5), azimut: 135 }], [camaraInicial(caja), sala(20)]]) {
+    const c = cuadrosDe(vuelo(a, b, anchoVista))
+    const saltos = c.slice(1).map((p, i) => ({
+      giro: Math.abs(((p.azimut - c[i].azimut + 540) % 360) - 180),
+      /* Lo que se ve: el desplazamiento en px de pantalla con el zoom de ese cuadro. */
+      px: Math.hypot(p.centro.x - c[i].centro.x, p.centro.y - c[i].centro.y) * base * Math.max(p.zoom, c[i].zoom),
+      zoom: Math.abs(Math.log(p.zoom / c[i].zoom)),
+    }))
+    assert.ok(Math.max(...saltos.map((x) => x.giro)) < 4, 'giro por cuadro')
+    assert.ok(Math.max(...saltos.map((x) => x.px)) < 40, 'px por cuadro')
+    assert.ok(Math.max(...saltos.map((x) => x.zoom)) < 0.06, 'zoom por cuadro')
+    const total = (x) => x.giro + x.px / 10 + x.zoom * 20
+    const medio = total(saltos[Math.floor(saltos.length / 2)])
+    assert.ok(total(saltos[0]) < medio / 5 && total(saltos.at(-1)) < medio / 5, 'arranca y llega despacio')
+    assert.deepEqual(c.at(-1), b)
+  }
+})
+
+test('girar sin viajar también se anima, con un respiro de zoom', () => {
+  const a = sala(5)
+  const v = vuelo(a, { ...a, azimut: a.azimut + 90 }, anchoVista)
+  assert.ok(v.duracion >= 1100)
+  assert.ok(v.en(0.5).zoom < 4 * 0.97 && v.en(0.5).zoom > 4 * 0.9)
+})
+
+test('la deriva en reposo es sutil y entra sin salto', () => {
+  const c = sala(5)
+  cerca(deriva(c, 0).azimut, c.azimut, 'sin salto al empezar')
+  const giros = Array.from({ length: 400 }, (_, i) => deriva(c, i / 10).azimut - c.azimut)
+  assert.ok(Math.max(...giros.map(Math.abs)) < 2.5)
+  assert.equal(deriva(c, 30).zoom, c.zoom)
 })

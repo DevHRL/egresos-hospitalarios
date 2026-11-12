@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Tooltip } from '@hrl/core-ui'
-import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase, interpolar, proyector, recorrido } from './camara3d.js'
+import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, deriva, escalaBase, proyector, vuelo } from './camara3d.js'
 
 /* Cámara guiada del plano 3D. Quien usa el plano no la mueve a mano: la
    mueve el sistema al elegir una cama o una habitación (en el plano o en la
@@ -11,11 +11,16 @@ import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, escalaBase,
    con la rueda o el arrastre el plano se quedaba con el desplazamiento de la
    página; además, cada selección llega siempre a un ángulo legible.
 
+   Movimiento: cada cambio es un vuelo (se aleja, viaja y se acerca en una
+   sola curva, ver `vuelo`) y, en reposo, una deriva muy lenta mantiene viva
+   la maqueta. Las animaciones se muestran aunque el sistema pida reducir
+   movimiento: sin ellas el plano saltaba y no se entendía a dónde iba.
+
    Un clic (o un toque) sobre el plano llega a `onPulsar` con el evento. */
 
 const SIN_MARGENES = { arriba: 16, abajo: 16, izquierda: 16, derecha: 16 }
-
-const reducirMovimiento = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+/* La deriva se pinta a la mitad de cuadros: es lenta y así gasta menos. */
+const CUADROS_DERIVA = 2
 
 /* `foco` es la habitación a encuadrar; `objetivo` ({ clave, azimut, elevacion,
    centro }) dice además desde dónde mirarla y qué centrar. Cada `clave` nueva
@@ -30,7 +35,10 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
   const base = useMemo(() => escalaBase(caja, area), [caja, area])
   const vista = useMemo(() => proyector(camara, area, base), [camara, area, base])
 
-  /* La cámara vive en una ref y se publica al estado una vez por cuadro. */
+  /* La cámara que se ve vive en una ref y se publica al estado una vez por
+     cuadro. `destino` es a dónde va (o donde reposa): los giros se suman a
+     él, así dos clics seguidos giran 180°. */
+  const destinoRef = useRef(camara)
   const fijar = useCallback((c) => {
     actual.current = c
     if (!cuadro.current) {
@@ -41,38 +49,53 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
     }
   }, [])
 
-  /* Animación suave: dura según cuánto gira y viaja, y entre habitaciones
-     lejanas se aleja un poco a mitad de camino. Si llega otra orden en medio,
-     parte desde donde va. */
-  const escalaRef = useRef(1)
-  const anchoRef = useRef(1)
-  const animarA = useCallback((destino) => {
-    cancelAnimationFrame(animacion.current)
-    const desde = actual.current
-    if (reducirMovimiento()) return fijar(destino)
-    const { duracion, arco } = recorrido(desde, destino, anchoRef.current / (escalaRef.current * desde.zoom))
+  const anchoVista = useRef(1)
+  anchoVista.current = area.ancho / base
+
+  /* En reposo, deriva lenta alrededor del destino, mientras el plano se vea. */
+  const enPantalla = useRef(true)
+  const derivar = useCallback(() => {
+    const reposo = destinoRef.current
     const inicio = performance.now()
+    let n = 0
     const paso = (ahora) => {
-      const t = Math.min(1, (ahora - inicio) / duracion)
-      fijar(t === 1 ? destino : interpolar(desde, destino, t, { arco }))
-      if (t < 1) animacion.current = requestAnimationFrame(paso)
+      if (enPantalla.current && n++ % CUADROS_DERIVA === 0) fijar(deriva(reposo, (ahora - inicio) / 1000))
+      animacion.current = requestAnimationFrame(paso)
     }
     animacion.current = requestAnimationFrame(paso)
   }, [fijar])
 
-  useEffect(() => () => {
-    cancelAnimationFrame(animacion.current)
-    cancelAnimationFrame(cuadro.current)
-  }, [])
+  const verse = useCallback((visible) => { enPantalla.current = visible }, [])
 
-  escalaRef.current = base
-  anchoRef.current = area.ancho
+  /* Vuela desde lo que se ve ahora (con su deriva) hasta el destino. */
+  const animarA = useCallback((destino) => {
+    cancelAnimationFrame(animacion.current)
+    destinoRef.current = destino
+    const desde = actual.current
+    const { duracion, en } = vuelo(desde, destino, anchoVista.current)
+    const inicio = performance.now()
+    const paso = (ahora) => {
+      const t = Math.min(1, (ahora - inicio) / duracion)
+      fijar(en(t))
+      if (t < 1) animacion.current = requestAnimationFrame(paso)
+      else derivar()
+    }
+    animacion.current = requestAnimationFrame(paso)
+  }, [fijar, derivar])
+
+  useEffect(() => {
+    derivar()
+    return () => {
+      cancelAnimationFrame(animacion.current)
+      cancelAnimationFrame(cuadro.current)
+    }
+  }, [derivar])
 
   /* Otro piso u otro servicio: se vuelve a la vista inicial. */
   const claveCaja = `${caja.x0},${caja.y0},${caja.x1},${caja.y1}`
   useEffect(() => {
-    cancelAnimationFrame(animacion.current)
-    fijar(camaraInicial(caja))
+    destinoRef.current = camaraInicial(caja)
+    fijar(destinoRef.current)
     // Solo cuando cambia lo que se encuadra.
   }, [claveCaja])
 
@@ -83,15 +106,16 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
     if (!tamano.ancho) return
     if (foco) {
       habiaFoco.current = true
-      animarA(objetivo ? camaraHacia(actual.current, foco, area, base, objetivo) : camaraSobre(actual.current, foco, area, base))
+      const desde = destinoRef.current
+      animarA(objetivo ? camaraHacia(desde, foco, area, base, objetivo) : camaraSobre(desde, foco, area, base))
     } else if (habiaFoco.current) {
       habiaFoco.current = false
-      animarA({ ...actual.current, zoom: 1, centro: camaraInicial(caja).centro })
+      animarA({ ...destinoRef.current, zoom: 1, centro: camaraInicial(caja).centro })
     }
     // Reacciona al cambio de habitación, no a cada render.
   }, [focoId, tamano.ancho > 0])
 
-  const girar = (grados) => animarA(acotar({ ...actual.current, azimut: actual.current.azimut + grados }))
+  const girar = (grados) => animarA(acotar({ ...destinoRef.current, azimut: destinoRef.current.azimut + grados }))
   const vistaGeneral = () => {
     if (foco) onSalirFoco?.()
     animarA(camaraInicial(caja))
@@ -116,6 +140,8 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
   return {
     vista,
     camara,
+    /* Para pausar la deriva cuando el plano sale de la pantalla. */
+    alVerse: verse,
     lienzo: { tabIndex: -1, onKeyDown: alTeclear },
     superficie: { onClick: (e) => onPulsar?.(e) },
     controles: { ...estables, hayFoco: Boolean(foco), nombreFoco: foco?.codigo || foco?.nombre || '' },

@@ -16,7 +16,7 @@ import { pintar, resolverPaleta } from '../plano/pintura3d.js'
    girar y acercar vaya fluido; la planta 2D sigue en SVG. */
 
 const MARGEN = 18
-const FUNDIDO_MS = 700
+const FUNDIDO_MS = 900
 /* Inclinación al enfocar: lo bastante alta para ver dentro de la habitación. */
 const ELEVACION_FOCO = 50
 
@@ -40,7 +40,6 @@ function IconoEstado({ x, y, nombre, lado = 12 }) {
 }
 
 const iconoDe = (info) => (info.falla ? 'sh-warn' : ESTADOS_CAMA_MAPA[info.estado].icono)
-const reducirMovimiento = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 /* Memorizado: solo se vuelve a dibujar si cambian los datos, la selección o la
    cámara, no cuando la pantalla de arriba cambia por otra cosa. */
@@ -133,11 +132,6 @@ function useLuces(focoId, zonas) {
     const destinoDe = (id) => (!focoId || id === focoId ? 1 : 0)
     const desde = new Map(luces.current)
     const todas = new Set([...ids.current, ...desde.keys()])
-    if (reducirMovimiento()) {
-      for (const z of todas) luces.current.set(z, destinoDe(z))
-      setCuadro((n) => n + 1)
-      return undefined
-    }
     const inicio = performance.now()
     let id = 0
     const paso = (t) => {
@@ -225,6 +219,16 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
   }
   const escena = useCamara3d({ tamano, caja, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
   const { vista, camara } = escena
+
+  /* Con el plano fuera de la pantalla, la deriva en reposo se detiene. */
+  const alVerse = escena.alVerse
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined
+    const observador = new IntersectionObserver(([e]) => alVerse(e.isIntersecting))
+    observador.observe(el)
+    return () => observador.disconnect()
+  }, [alVerse])
 
   /* Se pinta tras cada cambio de cámara, datos, foco o tema: un solo canvas,
      sin elementos que React tenga que comparar. */

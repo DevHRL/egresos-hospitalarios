@@ -69,3 +69,19 @@ las semillas de maestros.
   de la página (la ficha está debajo) y peleaban con el toque en tabletas; cada
   selección llega a un ángulo legible; y las tarjetas son el control accesible
   con teclado y lector de pantalla.
+- **Movimiento.** Cada cambio es un vuelo de cámara con el zoom y desplazamiento
+  óptimos de van Wijk y Nuij (el «fly to» de los mapas web): se aleja, viaja y se
+  acerca en una sola curva; el giro se reparte en la segunda parte con una curva
+  sin picos. Girar 90° dura cerca de 1,2 s con un leve respiro de zoom. En reposo,
+  una deriva lenta (±2° de giro) mantiene viva la maqueta; se detiene con el plano
+  fuera de la pantalla. Al cambiar de habitación, la anterior se apaga mientras la
+  nueva se enciende.
+- **Animaciones aunque el sistema pida reducir movimiento.** En el equipo de
+  prueba, Windows tenía apagados los efectos de animación y el plano saltaba sin
+  que se entendiera a dónde iba. Si alguien necesita menos movimiento, se puede
+  agregar una preferencia en la aplicación.
+- Se evaluó la skill isometric-game-skills: sus guías de cámara son para cámaras
+  que el jugador mueve a mano (arrastre, zoom al cursor, ajuste a píxeles enteros)
+  y no traen animación; ya se aplicaba recortar lo que queda fuera y una sola
+  transformación por cuadro. Ajustar a píxeles enteros haría temblar los
+  movimientos lentos de un dibujo vectorial, así que no se usa.
