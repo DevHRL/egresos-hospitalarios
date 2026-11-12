@@ -60,6 +60,14 @@ prueban con `npm test` (`node --test`, carpeta `pruebas/`). Todo cambio del
 plano pasa por `aplicar(plano, accion)`, para que deshacer y guardar vean un
 único punto de cambio.
 
+### Animaciones
+
+Toda animación sigue [`docs/diseno/animaciones.md`](docs/diseno/animaciones.md):
+nada salta, arranca y llega despacio, duración según cuánto cambia, curvas y vuelo
+de cámara de `paneles/plano/camara3d.js`, tokens de tiempo del kit en CSS, 4 ms por
+cuadro como máximo y pruebas que muestrean la curva. Léelo antes de animar una
+pantalla nueva.
+
 ### Datos
 
 - **Nada de datos de pacientes** en el repositorio ni en la documentación.

@@ -12,6 +12,8 @@ nav:
       - Camas, habitaciones y mantenimiento: proceso/camas-y-mantenimiento.md
   - Módulos y pantallas: modulos.md
   - Arquitectura: arquitectura.md
+  - Diseño:
+      - Estándar de animaciones: diseno/animaciones.md
   - Tecnologías: tecnologias.md
   - Plan de implementación: plan.md
   - Piloto Medicina: piloto-medicina.md
