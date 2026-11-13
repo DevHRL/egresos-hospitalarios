@@ -1,0 +1,24 @@
+{
+  "name": "egresos-hospitalarios-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint src/",
+    "preview": "vite preview",
+    "kit:doctor": "hrl-core-ui doctor",
+    "test": "node --test \"pruebas/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "@hrl/core-ui": "github:DevHRL/hrl-core-ui#v1.11.0-redesign.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.4",
+    "oxlint": "^1.75.0",
+    "vite": "^8.2.0"
+  }
+}
