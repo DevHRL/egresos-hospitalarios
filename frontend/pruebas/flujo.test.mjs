@@ -14,8 +14,11 @@ const DEP = cuentaPorId('dep.medicina')
 const EST = cuentaPorId('estadistica')
 const MANT = cuentaPorId('mantenimiento')
 const MED = 'medicina'
+const MA = 'medicina-a'
 const MB = 'medicina-b'
 const MI = 'medicina-intermedios'
+const UCI = 'cuidados-criticos'
+const QUE = 'quemados'
 const DIA = '2026-11-02'
 const H = (h) => `${DIA}T${h}`
 const paciente = (n, sexo = 'F') => ({ hc: `1000${n}`, dni: `4000000${n}`, nombres: `Prueba ${n}`, sexo, nacimiento: '1970-01-01' })
@@ -33,11 +36,48 @@ function conIngreso(n = 1, cama = 'cama-b-03') {
   return hacer(e, DEP, 'ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama, fechaHora: H('08:00') })
 }
 
-test('el plano tiene 24 camas en B y 5 en Intermedios', () => {
+test('el piso tiene 24 camas en A, 24 en B, 5 en Intermedios, 7 en UCI y 7 en Quemados', () => {
   const camas = maestroDesdePlano(plano, departamentoDe)
+  assert.equal(camas.length, 67)
+  const a = camas.filter((c) => c.servicioId === MA)
+  assert.equal(a.length, 24)
+  assert.deepEqual(a.map((c) => c.codigo).sort(), Array.from({ length: 24 }, (_, i) => `A-${String(i + 1).padStart(2, '0')}`))
   assert.equal(camas.filter((c) => c.servicioId === MB).length, 24)
   assert.equal(camas.filter((c) => c.servicioId === MI).length, 5)
-  assert.ok(camas.every((c) => c.departamentoId === MED))
+  assert.ok(camas.filter((c) => [MA, MB, MI].includes(c.servicioId)).every((c) => c.departamentoId === MED))
+  assert.equal(camas.filter((c) => c.servicioId === UCI).length, 7)
+  const quemados = camas.filter((c) => c.servicioId === QUE)
+  assert.equal(quemados.length, 7)
+  assert.equal(quemados.filter((c) => c.tipo === 'cuna').length, 2, 'pediatría de Quemados tiene dos cunas')
+})
+
+test('en UCI y Quemados designa la propia unidad; en Medicina, solo el departamento', () => {
+  assert.deepEqual(cuentaPorId('uci').designa, ['uci-medicina'])
+  assert.deepEqual(cuentaPorId('quemados').designa, ['quemados'])
+  assert.deepEqual(DEP.designa, [MED])
+  assert.deepEqual(B.designa, [])
+  let e = a(base(), H('08:00'))
+  e = orden(e, 1, { departamentoId: 'uci-medicina' })
+  falla(() => hacer(e, B, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-u-02', fechaHora: H('08:00') }), /designa/)
+  falla(() => hacer(e, cuentaPorId('quemados'), 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-u-02', fechaHora: H('08:00') }), /designa/)
+  e = hacer(e, cuentaPorId('uci'), 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-u-02', fechaHora: H('08:00') })
+  assert.equal(posicionActual(e, e.hospitalizaciones[0].id).servicioId, UCI)
+  e = orden(e, 2)
+  falla(() => hacer(e, B, 'ingreso/confirmar', { ordenId: e.ordenes[1].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /designa/)
+  falla(() => hacer(e, cuentaPorId('medicina.a'), 'ingreso/confirmar', { ordenId: e.ordenes[1].id, camaId: 'cama-a-01', fechaHora: H('08:00') }), /designa/)
+  e = hacer(e, DEP, 'ingreso/confirmar', { ordenId: e.ordenes[1].id, camaId: 'cama-a-01', fechaHora: H('08:00') })
+  assert.equal(posicionActual(e, e.hospitalizaciones[1].id).servicioId, MA)
+})
+
+test('el estado de la cama es uno de cuatro; el O2 o la VM van aparte', () => {
+  let e = conIngreso(1, 'cama-b-03')
+  e = a(e, H('09:00'))
+  e = hacer(e, B, 'soporte/cambiar', { hospitalizacionId: e.hospitalizaciones[0].id, soporte: 'o2', fechaHora: H('09:00') })
+  const info = estadoCama(e, e.camas.find((c) => c.id === 'cama-b-03'))
+  assert.deepEqual([info.estado, info.soporte, info.libre], ['ocupada', 'o2', false])
+  e = hacer(e, B, 'falla/reportar', { camaId: 'cama-b-03', falla: 'Baranda floja' })
+  const conFalla = estadoCama(e, e.camas.find((c) => c.id === 'cama-b-03'))
+  assert.deepEqual([conFalla.estado, Boolean(conFalla.ocupante)], ['falla', true], 'con falla sigue con su paciente')
 })
 
 test('Admisión envía al departamento; el departamento designa habitación y cama', () => {
@@ -77,7 +117,7 @@ test('los permisos siguen a la cuenta', () => {
   falla(() => hacer(e, B, 'orden/registrar', { paciente: paciente(1), origen: 'consulta_externa', departamentoId: MED }), /permiso/)
   e = orden(e, 1)
   for (const cuenta of [ADM, B, INT, EST, MANT]) {
-    falla(() => hacer(e, cuenta, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /permiso/)
+    falla(() => hacer(e, cuenta, 'ingreso/confirmar', { ordenId: e.ordenes[0].id, camaId: 'cama-b-03', fechaHora: H('08:00') }), /permiso|designa/)
   }
 })
 
@@ -162,21 +202,22 @@ test('el censo lista cada cama y a quien salió ese día', () => {
   assert.equal(salio.camaCodigo, 'B-03')
 })
 
-test('mantenimiento sin reemplazo: fuera de servicio hasta que enfermería recibe', () => {
+test('mantenimiento sin reemplazo: en mantenimiento hasta que enfermería recibe', () => {
   let e = a(base(), H('08:00'))
   const camaId = 'cama-b-05'
   e = hacer(e, B, 'falla/reportar', { camaId, falla: 'Rueda rota' })
   const cama = () => e.camas.find((c) => c.id === camaId)
-  assert.equal(estadoCama(e, cama()).estado, 'libre')
+  assert.equal(estadoCama(e, cama()).estado, 'falla')
   assert.equal(estadoCama(e, cama()).falla, true)
+  assert.equal(estadoCama(e, cama()).libre, true, 'la falla no quita la cama de servicio')
   const o = () => e.ordenesCama[0].id
   falla(() => hacer(e, B, 'mant/retirar', { ordenId: o(), conReemplazo: false }), /permiso/)
   e = hacer(e, MANT, 'mant/retirar', { ordenId: o(), conReemplazo: false })
-  assert.equal(estadoCama(e, cama()).estado, 'fuera')
+  assert.equal(estadoCama(e, cama()).estado, 'mantenimiento')
   assert.equal(resumenCamas(e, [MB]).operativas, 23)
   e = hacer(e, MANT, 'mant/resolver', { ordenId: o(), diagnostico: 'Cambio de rueda', resultado: 'reparada' })
   e = hacer(e, MANT, 'mant/entregar', { ordenId: o() })
-  assert.equal(estadoCama(e, cama()).estado, 'fuera')
+  assert.equal(estadoCama(e, cama()).estado, 'mantenimiento')
   e = hacer(e, B, 'mant/recibir', { ordenId: o() })
   assert.equal(estadoCama(e, cama()).estado, 'libre')
   assert.equal(e.ordenesCama[0].estado, 'cerrada')
@@ -246,17 +287,17 @@ test('la demostración respeta todas las reglas y cuadra', () => {
   const e = crearSemilla(plano)
   assert.equal(e.ordenes.filter((o) => o.estado === 'pendiente').length, 3)
   for (const dia of ['2026-11-05', '2026-11-06', '2026-11-07']) {
-    for (const s of [MB, MI]) {
+    for (const s of [MA, MB, MI, UCI, QUE]) {
       assert.equal(cuadreCenso(e, s, dia).cuadra, true)
       assert.equal(e.censos[`${s}|${dia}`].estado, 'cerrado')
       assert.equal(e.censos[`${s}|${dia}`].conteoFisico, cuadreCenso(e, s, dia).pacientesCorte)
     }
   }
-  assert.equal(estadoCama(e, e.camas.find((c) => c.codigo === 'B-18')).estado, 'fuera')
+  assert.equal(estadoCama(e, e.camas.find((c) => c.codigo === 'B-18')).estado, 'mantenimiento')
 })
 
 test('cada cuenta usa módulos que existen y todas ven el plano 3D', () => {
-  assert.deepEqual(CUENTAS.map((c) => c.id).sort(), ['admision', 'dep.medicina', 'estadistica', 'mantenimiento', 'medicina.b', 'medicina.int'])
+  assert.deepEqual(CUENTAS.map((c) => c.id).sort(), ['admision', 'dep.medicina', 'estadistica', 'mantenimiento', 'medicina.a', 'medicina.b', 'medicina.int', 'quemados', 'uci'])
   for (const c of CUENTAS) {
     for (const m of c.modulos) assert.ok(MODULOS[m], `${c.id}: ${m}`)
     assert.ok(c.modulos.includes('mapa'), `${c.id} no ve el plano`)

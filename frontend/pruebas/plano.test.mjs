@@ -101,3 +101,19 @@ test('conteoPorServicio separa operativas y fuera de servicio', () => {
   p = aplicar(p, { tipo: 'cama/crear', cama: c2 })
   assert.deepEqual(conteoPorServicio(p).get('medicina-a'), { total: 2, operativas: 1, fueraServicio: 1 })
 })
+
+test('las camas se agrupan en hospitalización y aislados según el nombre de su habitación', async () => {
+  const { categoriaDeZona, CATEGORIAS_CAMA } = await import('../src/app/dominio/plano.js')
+  const fs = await import('node:fs')
+  const piso = JSON.parse(fs.readFileSync(new URL('../src/app/datos/planos/medicina-b-piso2.json', import.meta.url), 'utf8'))
+  const zona = new Map(piso.zonas.map((z) => [z.id, z]))
+  const cuenta = (servicio, categoria) => piso.camas.filter((c) => zona.get(c.zonaId).servicioId === servicio && categoriaDeZona(zona.get(c.zonaId)) === categoria).length
+  assert.deepEqual(CATEGORIAS_CAMA.map((c) => c.id), ['hospitalizacion', 'aislados'])
+  assert.equal(categoriaDeZona({ nombre: 'Aislado invertido' }), 'aislados')
+  assert.equal(categoriaDeZona({ nombre: 'Cuarto 01' }), 'hospitalizacion')
+  assert.equal(categoriaDeZona(null), 'hospitalizacion')
+  /* Medicina B: dos aislados invertidos; Medicina A: uno. */
+  assert.equal(cuenta('medicina-b', 'aislados'), 2)
+  assert.equal(cuenta('medicina-a', 'aislados'), 1)
+  assert.equal(cuenta('medicina-a', 'hospitalizacion'), 23)
+})

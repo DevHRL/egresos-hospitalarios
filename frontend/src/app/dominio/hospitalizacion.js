@@ -4,7 +4,8 @@
    reportes y los indicadores se calculan después (ver `consultas.js`).
 
    Admisión envía al paciente a un departamento; la cuenta del departamento
-   designa habitación y cama, y con eso queda el área. Desde ahí el piso
+   (o la de la unidad, si el departamento no tiene una) designa habitación y
+   cama, y con eso queda el área. Desde ahí el piso
    controla al paciente y a su cama. Los préstamos de cama aún no existen:
    una cama solo admite pacientes de su propio servicio. */
 
@@ -45,7 +46,8 @@ const CENSO = ['enfermeria', 'jefatura']
 const PERMISOS = {
   'orden/registrar': ['admision'],
   'orden/anular': ['admision'],
-  'ingreso/confirmar': ['departamento'],
+  /* Además del rol, la cuenta debe designar en ese departamento (`designa`). */
+  'ingreso/confirmar': ['departamento', 'enfermeria'],
   'traslado/registrar': ENFERMERIA,
   'traslado/confirmar': ENFERMERIA,
   'traslado/cancelar': ENFERMERIA,
@@ -252,6 +254,7 @@ export function aplicar(estado, accion) {
       if (!o || o.estado !== 'pendiente') falla('La orden ya no está pendiente.')
       const cama = camaPorId(e, d.camaId)
       if (!cama) falla('Elige la habitación y la cama.')
+      if (cuenta.rol !== 'sistema' && !(cuenta.designa ?? []).includes(o.departamentoId)) falla('En ese departamento la cama la designa la cuenta del departamento.')
       if (cama.departamentoId !== o.departamentoId) falla('La cama debe ser del departamento al que Admisión envió al paciente.')
       asegurarServicio(cuenta, cama.servicioId)
       asegurarEditable(e, cama.servicioId, d.fechaHora)

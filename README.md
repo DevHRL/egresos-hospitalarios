@@ -45,32 +45,37 @@ El flujo completo de hospitalización con pacientes ficticios, guardado en
 PostgreSQL: orden de Admisión al departamento, designación de habitación y cama,
 traslados, soporte de O2, egreso, censo diario, completado desde la HC,
 validación, RENOXI, indicadores DIRESA, cierre de mes con ajustes y mantenimiento
-de camas. El plano ya viene cargado: **Medicina B (24 camas) y Medicina
-Intermedios (5)**, y todas las cuentas lo ven en 3D (girar, acercar y enfocar
-una habitación).
+de camas. El plano del piso 2 ya viene cargado: **Medicina A (24 camas),
+Medicina B (24), Medicina Intermedios (5), UCI (7) y Quemados (7, dos de ellas
+cunas)**, y todas
+las cuentas lo ven en 3D. Cada cama es libre, ocupada (con el paciente dibujado
+sobre ella), con falla reportada o en mantenimiento; el O2 o la VM van como marca.
 
-Seis cuentas ([decisión 0007](docs/decisiones/0007-orden-al-departamento-seis-cuentas.md)):
+Nueve cuentas ([decisiones 0007](docs/decisiones/0007-orden-al-departamento-seis-cuentas.md), [0008](docs/decisiones/0008-uci-quemados-y-estados-de-cama.md) y [0009](docs/decisiones/0009-medicina-a-en-el-piso-2.md)):
 
 | Usuario | Qué hace |
 |---|---|
-| `admision` | Envía al paciente al departamento de Medicina |
-| `dep.medicina` | Designa habitación y cama; después solo supervisa |
-| `medicina.b` | Controla a sus pacientes y camas: O2, traslados, alta, mantenimiento, censo |
+| `admision` | Envía al paciente al departamento (Medicina, UCI o Quemados) |
+| `dep.medicina` | Designa habitación y cama en Medicina; después solo supervisa |
+| `medicina.a` | Controla a sus pacientes y camas: O2, traslados, alta, mantenimiento, censo |
+| `medicina.b` | Lo mismo en Medicina B |
 | `medicina.int` | Lo mismo en Intermedios |
+| `uci` | Designa la cama en UCI y controla a sus pacientes (O2, VM, traslados, alta, censo) |
+| `quemados` | Lo mismo en Quemados |
 | `estadistica` | HC, completado, validación, RENOXI, indicadores y cierre de mes |
 | `mantenimiento` | Retira, repara y entrega camas |
 
 Todas usan la contraseña de `CLAVE_INICIAL_CUENTAS` en `.env`.
 
-Con `APP_ENV=desarrollo`, la barra superior adelanta el reloj y cierra los censos
-pendientes, y el menú de la cuenta cambia de área o reinicia los datos. Con
+Con `APP_ENV=desarrollo`, el menú de la cuenta adelanta el reloj, cierra los
+censos pendientes, cambia de área o reinicia los datos. Con
 `APP_ENV=produccion` esas opciones se apagan y la demostración no se puede cargar.
 
 ### Empezar sin datos ficticios
 
 Para probar a mano con datos nuevos, este comando borra **todos** los datos
 (pacientes, órdenes, censos, egresos, mantenimiento y bitácora) y deja solo el
-plano, las seis cuentas y los catálogos. Sin `--confirmar` solo muestra qué haría:
+plano, las cuentas y los catálogos. Sin `--confirmar` solo muestra qué haría:
 
 ```bash
 cd backend && .venv/Scripts/python -m semillas.iniciar_sin_datos --confirmar --arranque AAAA-MM-DD

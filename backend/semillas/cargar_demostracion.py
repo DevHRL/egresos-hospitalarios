@@ -6,7 +6,10 @@ from sqlalchemy import create_engine, text
 
 from app.config import es_demo, url_owner
 from app.acciones import guardar_censo
-from semillas.cargar_maestros import cargar as cargar_maestros, exportar
+from semillas.cargar_maestros import DIGITALES, cargar as cargar_maestros, exportar
+
+# Servicios con su piso en el sistema: Medicina B e Intermedios, UCI y Quemados.
+INCORPORADOS = tuple(sorted(DIGITALES))
 
 TABLAS = (
     "auditoria, bitacora, parametro, renoxi_carga, ajuste_periodo, indicador_mes_cerrado, periodo, dotacion_detalle, dotacion_version, "
@@ -37,9 +40,8 @@ def cargar(conexion, datos: dict | None = None) -> None:
         conexion.execute(text("INSERT INTO cie10 (codigo, nombre) VALUES (:c, :n) ON CONFLICT DO NOTHING"), {"c": c["value"], "n": c["label"]})
 
     conexion.execute(
-        text("UPDATE servicio SET fecha_arranque = CAST(:d AS date) WHERE id IN ('medicina-b', 'medicina-intermedios')"), {"d": e["arranque"]}
+        text("UPDATE servicio SET fecha_arranque = CAST(:d AS date) WHERE id = ANY(:s)"), {"d": e["arranque"], "s": list(INCORPORADOS)}
     )
-    # UCI no está en el prototipo desde el 2026-11-11: un traslado a UCI cierra al salir del piso.
     conexion.execute(
         text("""INSERT INTO parametro (clave, vigente_desde, valor) VALUES ('reloj_demo', DATE '2000-01-01', CAST(:v AS jsonb))
                 ON CONFLICT (clave, vigente_desde) DO UPDATE SET valor = EXCLUDED.valor"""),

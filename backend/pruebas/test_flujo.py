@@ -65,7 +65,9 @@ def test_admision_envia_al_departamento_y_este_designa_la_cama(conn):
     assert valor(conn, "SELECT departamento_id FROM orden_hospitalizacion WHERE id = :o", o=o) == MED
     assert valor(conn, "SELECT servicio_id FROM orden_hospitalizacion WHERE id = :o", o=o) is None
     for quien in ("admision", "medicina.b", "medicina.int", "estadistica", "mantenimiento"):
-        falla(conn, "permiso", quien, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
+        falla(conn, "permiso|designa", quien, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
+    for unidad in ("uci", "quemados"):
+        falla(conn, "designa", unidad, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
     designar(conn, o, "cama-i-04")
     assert valor(conn, "SELECT estado FROM orden_hospitalizacion WHERE id = :o", o=o) == "ingresada"
     assert valor(conn, "SELECT servicio_id FROM orden_hospitalizacion WHERE id = :o", o=o) == INT
@@ -108,11 +110,36 @@ def test_traslado_entre_pisos_lo_confirma_el_destino(conn):
     assert valor(conn, "SELECT traslados_salida FROM cuadre_censo('medicina-b', '2026-11-08')") == 1
 
 
-def test_traslado_a_uci_cierra_al_salir_del_piso(conn):
-    """UCI no está en el prototipo: el traslado cierra la estancia en Medicina y libera la cama."""
+def test_en_uci_y_quemados_designa_la_propia_unidad(conn):
+    """Sin cuenta de departamento, la enfermería de la unidad designa la cama (decisión 0008)."""
+    o = ordenar(conn, departamentoId="uci-medicina")
+    for quien in ("dep.medicina", "medicina.b", "quemados"):
+        falla(conn, "permiso|designa|servicio", quien, "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
+    hacer(conn, "uci", "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
+    assert valor(conn, "SELECT servicio_id FROM ocupacion_cama WHERE cama_id = 'cama-u-01' AND hasta IS NULL") == "cuidados-criticos"
+    o = ordenar(conn, 2, departamentoId="quemados")
+    hacer(conn, "quemados", "ingreso/confirmar", ordenId=o, camaId="cama-q-06", fechaHora=AHORA)
+    assert valor(conn, "SELECT tipo FROM cama WHERE id = 'cama-q-06'") == "cuna"
+
+
+def test_traslado_a_uci_es_un_traslado_que_confirma_la_unidad(conn):
+    """Desde el 2026-11-12 UCI está en el sistema: el paciente sigue su estancia."""
     h = ingresar(conn)
-    falla(conn, "servicio de destino", "medicina.b", "traslado/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, servicioDestino="cuidados-criticos")
-    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", tipoEgreso="traslado_no_incorporado", destino="UCI Medicina")
+    hacer(conn, "medicina.b", "traslado/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, servicioDestino="cuidados-criticos")
+    t = valor(conn, "SELECT max(id) FROM traslado")
+    falla(conn, "su servicio", "medicina.int", "traslado/confirmar", ahora="2026-11-08T11:20", trasladoId=t, camaId="cama-u-01", fechaHora="2026-11-08T11:20")
+    hacer(conn, "uci", "traslado/confirmar", ahora="2026-11-08T11:20", trasladoId=t, camaId="cama-u-01", fechaHora="2026-11-08T11:20")
+    assert valor(conn, "SELECT estado FROM hospitalizacion WHERE id = :h", h=h) == "abierta"
+    assert valor(conn, "SELECT estado FROM v_estado_cama WHERE cama_id = 'cama-b-01'") == "libre"
+    hacer(conn, "uci", "soporte/cambiar", ahora="2026-11-08T11:30", hospitalizacionId=h, soporte="vm", fechaHora="2026-11-08T11:30")
+    assert valor(conn, "SELECT traslados_entrada FROM cuadre_censo('cuidados-criticos', '2026-11-08')") == 1
+
+
+def test_traslado_a_otro_departamento_cierra_al_salir_del_piso(conn):
+    """Cirugía no está en el prototipo: el traslado cierra la estancia y libera la cama."""
+    h = ingresar(conn)
+    falla(conn, "servicio de destino", "medicina.b", "traslado/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, servicioDestino="cirugia")
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", tipoEgreso="traslado_no_incorporado", destino="Cirugía")
     assert valor(conn, "SELECT estado FROM v_estado_cama WHERE cama_id = 'cama-b-01'") == "libre"
     assert valor(conn, "SELECT traslados_salida FROM cuadre_censo('medicina-b', '2026-11-08')") == 1
 

@@ -350,6 +350,16 @@ export function servicioDeCama(cama, zona) {
   return cama.servicioId ?? zona?.servicioId ?? null
 }
 
+/* Las camas se agrupan en dos categorías: aislados y hospitalización. Una
+   habitación es de aislamiento si su nombre lo dice («Aislado», «Aislado
+   invertido»); el resto es hospitalización. */
+export const CATEGORIAS_CAMA = [
+  { id: 'hospitalizacion', label: 'Hospitalización' },
+  { id: 'aislados', label: 'Aislados' },
+]
+export const esAislado = (zona) => /^aislad/i.test(zona?.nombre ?? '')
+export const categoriaDeZona = (zona) => (esAislado(zona) ? 'aislados' : 'hospitalizacion')
+
 /* Camas mapeadas por servicio: total, operativas y fuera de servicio. */
 export function conteoPorServicio(plano) {
   const zonas = new Map(plano.zonas.map((z) => [z.id, z]))

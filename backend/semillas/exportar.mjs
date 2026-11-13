@@ -7,8 +7,8 @@ import { CIE10, MEDICOS } from '../../frontend/src/app/datos/clinicos.js'
 import { crearSemilla } from '../../frontend/src/app/datos/semilla.js'
 
 const leer = (nombre) => JSON.parse(fs.readFileSync(new URL(`../../frontend/src/app/datos/planos/${nombre}`, import.meta.url), 'utf8'))
-/* Solo Medicina B e Intermedios: UCI salió del prototipo el 2026-11-11. Su plano
-   provisional sigue en datos/planos/ para cuando se incorpore. */
+/* El piso 2: Medicina A y B, Intermedios, UCI y Quemados (decisiones 0008 y 0009). UCI
+   Cirugía y UCI Pediatría siguen con plano provisional, fuera del prototipo. */
 const medicina = leer('medicina-b-piso2.json')
 
 process.stdout.write(JSON.stringify({

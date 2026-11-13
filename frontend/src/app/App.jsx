@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, AppShell, Button, Toast } from '@hrl/core-ui'
+import { Alert, AppShell, Toast } from '@hrl/core-ui'
 import { CLAVE_PREFERENCIAS, CLAVE_TEMA } from './tema.js'
 import { MODULOS, cuentaPorId, CUENTAS } from './datos/cuentas.js'
 import { cambiarCuenta, cerrarCensosPendientes, cerrarSesion, conectar, despachar, haySesion, moverReloj, reiniciarDemo, useEstado, useSinConexion } from './datos/tienda.js'
@@ -41,11 +41,10 @@ function pendientes(estado, cuenta) {
   const camasDe = (o) => cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId)
   return {
     ordenes: cuenta.rol === 'admision' ? estado.ordenes.filter((o) => o.estado === 'pendiente').length : 0,
-    mapa: cuenta.rol === 'departamento'
-      ? ordenesPendientes(estado, cuenta.servicios).length
-      : cuenta.rol === 'enfermeria'
+    mapa: (cuenta.designa?.length ? ordenesPendientes(estado, cuenta.servicios).length : 0)
+      + (cuenta.rol === 'enfermeria'
         ? estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)).length + estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && camasDe(o)).length
-        : 0,
+        : 0),
     completado: egresos.filter((h) => ['pendiente_hc', 'observado'].includes(h.egreso.estado)).length,
     validacion: egresos.filter((h) => h.egreso.estado === 'completo').length,
     mantenimiento: estado.ordenesCama.filter((o) => ['pendiente_retiro', 'en_reparacion', 'lista_entrega'].includes(o.estado)).length,
@@ -123,18 +122,24 @@ export default function App() {
   const activo = cuenta.modulos.includes(modulo) ? modulo : cuenta.modulos[0]
   const Panel = PANELES[activo]
 
-  const relojDemo = (
-    <>
-      <Button size="sm" tone="ghost" onClick={() => moverReloj(sumarHoras(estado.ahora, 1))}>+1 hora</Button>
-      <Button size="sm" tone="ghost" onClick={() => moverReloj(proximaHora(estado.ahora, '00:00'))}>Ir a las 00:00</Button>
-      <Button size="sm" tone="ghost" onClick={() => moverReloj(proximaHora(estado.ahora, '08:00'))}>Ir a las 08:00</Button>
-      <Button size="sm" tone="ghost" onClick={() => moverReloj(`${sumarDias(`${mesDe(estado.ahora)}-28`, 4).slice(0, 7)}-01T09:00`)}>Ir al mes siguiente</Button>
-      <Button size="sm" tone="ghost" onClick={async () => setToast(`Censos cerrados: ${await cerrarCensosPendientes()}.`)}>Cerrar censos pendientes</Button>
-    </>
-  )
+  /* El reloj de la demostración ya no ocupa una fila sobre la pantalla
+     (2026-11-12): vive en el menú de la cuenta, solo en desarrollo. */
+  const mover = (ahora) => async () => {
+    await moverReloj(ahora)
+    setToast(`Hora de la demostración: ${verFechaHora(ahora)}.`)
+  }
+  const relojDemo = [
+    { id: 'sep-reloj', separator: true },
+    { id: 'hora', label: `+1 hora (ahora ${verFechaHora(estado.ahora)})`, icon: 'sh-clock', onSelect: mover(sumarHoras(estado.ahora, 1)) },
+    { id: 'medianoche', label: 'Ir a las 00:00', icon: 'sh-clock', onSelect: mover(proximaHora(estado.ahora, '00:00')) },
+    { id: 'recojo', label: 'Ir a las 08:00', icon: 'sh-clock', onSelect: mover(proximaHora(estado.ahora, '08:00')) },
+    { id: 'mes', label: 'Ir al mes siguiente', icon: 'sh-clock', onSelect: mover(`${sumarDias(`${mesDe(estado.ahora)}-28`, 4).slice(0, 7)}-01T09:00`) },
+    { id: 'censos', label: 'Cerrar censos pendientes', icon: 'sh-table', onSelect: async () => setToast(`Censos cerrados: ${await cerrarCensosPendientes()}.`) },
+  ]
 
   const accountItems = [
     ...CUENTAS.filter((c) => c.id !== cuenta.id).map((c) => ({ id: c.id, label: `Entrar como ${c.nombre}`, icon: 'sh-profile', onSelect: () => entrar(c.id) })),
+    ...(estado.modoDemo ? relojDemo : []),
     { id: 'sep', separator: true },
     ...(estado.modoDemo ? [{ id: 'reiniciar', label: 'Reiniciar demostración', icon: 'sh-swap', tone: 'danger', onSelect: async () => { await reiniciarDemo(); setToast('Demostración reiniciada.') } }] : []),
   ]
@@ -145,15 +150,14 @@ export default function App() {
         navItems={navItems}
         active={activo}
         onSelect={setModulo}
-        title={MODULOS[activo].label}
-        subtitle={MODULOS[activo].subtitulo}
+        title={MODULOS[activo].encabezadoPropio ? undefined : MODULOS[activo].label}
+        subtitle={MODULOS[activo].encabezadoPropio ? undefined : MODULOS[activo].subtitulo}
         brand="Egresos Hospitalarios"
         themeKey={CLAVE_TEMA}
         preferencesKey={CLAVE_PREFERENCIAS}
         user={{ name: cuenta.nombre, role: cuenta.rolLabel }}
         accountItems={accountItems}
         onSignOut={salir}
-        banner={estado.modoDemo ? { status: { icon: 'sh-clock', label: 'Hora de la demostración', detail: verFechaHora(estado.ahora), tone: 'info' }, actions: relojDemo } : undefined}
       >
         <Panel />
       </AppShell>

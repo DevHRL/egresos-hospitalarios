@@ -32,15 +32,18 @@ def test_motor_16(conn):
     assert uno(conn, "SHOW server_version_num").startswith("16")
 
 
-@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 1), ("zona", 37), ("cama", 29), ("activo_cama", 29), ("cuenta", 7), ("dotacion_version", 2)])
+@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 1), ("zona", 95), ("cama", 67), ("activo_cama", 67), ("cuenta", 10), ("dotacion_version", 2)])
 def test_maestros(conn, tabla, total):
     assert uno(conn, f"SELECT count(*) FROM {tabla}") == total
 
 
 def test_camas_por_servicio(conn):
+    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'medicina-a'") == 24
     assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = :s", s=B) == 24
     assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = :s", s=I) == 5
-    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'cuidados-criticos'") == 0
+    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'cuidados-criticos'") == 7
+    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'quemados'") == 7
+    assert uno(conn, "SELECT count(*) FROM cama WHERE servicio_id = 'quemados' AND tipo = 'cuna'") == 2
 
 
 def test_dotaciones(conn):
@@ -48,9 +51,9 @@ def test_dotaciones(conn):
     assert uno(conn, "SELECT sum(n_camas) FROM dotacion_detalle WHERE version_id = 'conteo-fisico-2026'") == 260
 
 
-def test_solo_las_seis_cuentas_del_prototipo_estan_activas(conn):
+def test_solo_las_nueve_cuentas_del_prototipo_estan_activas(conn):
     activas = conn.execute(text("SELECT id FROM cuenta WHERE activo AND rol <> 'sistema' ORDER BY id")).scalars().all()
-    assert activas == ["admision", "dep.medicina", "estadistica", "mantenimiento", "medicina.b", "medicina.int"]
+    assert activas == ["admision", "dep.medicina", "estadistica", "mantenimiento", "medicina.a", "medicina.b", "medicina.int", "quemados", "uci"]
     assert uno(conn, "SELECT rol FROM cuenta WHERE id = 'dep.medicina'") == "departamento"
 
 
@@ -61,14 +64,16 @@ def test_maestros_idempotentes(conn):
 
 
 def test_demostracion(conn):
-    assert uno(conn, "SELECT count(*) FROM paciente") == 19
-    assert fila(conn, "SELECT count(*), count(*) FILTER (WHERE estado='ingresada'), count(*) FILTER (WHERE estado='pendiente') FROM orden_hospitalizacion") == (19, 16, 3)
-    assert fila(conn, "SELECT count(*), count(*) FILTER (WHERE estado='abierta') FROM hospitalizacion") == (16, 13)
-    assert fila(conn, "SELECT count(*) FILTER (WHERE tipo='ingreso'), count(*) FILTER (WHERE tipo='traslado'), count(*) FILTER (WHERE tipo='soporte'), count(*) FILTER (WHERE tipo='egreso') FROM movimiento") == (16, 1, 3, 3)
+    # Medicina B e Intermedios: 19 pacientes; Medicina A: 5; UCI: 2 (uno con VM); Quemados: 1.
+    assert uno(conn, "SELECT count(*) FROM paciente") == 27
+    assert fila(conn, "SELECT count(*), count(*) FILTER (WHERE estado='ingresada'), count(*) FILTER (WHERE estado='pendiente') FROM orden_hospitalizacion") == (27, 24, 3)
+    assert fila(conn, "SELECT count(*), count(*) FILTER (WHERE estado='abierta') FROM hospitalizacion") == (24, 21)
+    assert fila(conn, "SELECT count(*) FILTER (WHERE tipo='ingreso'), count(*) FILTER (WHERE tipo='traslado'), count(*) FILTER (WHERE tipo='soporte'), count(*) FILTER (WHERE tipo='egreso') FROM movimiento") == (24, 1, 6, 3)
     assert uno(conn, "SELECT count(*) FROM traslado WHERE estado = 'confirmado'") == 1
     assert uno(conn, "SELECT count(*) FROM orden_mantenimiento") == 2
     assert sorted(r[0] for r in conn.execute(text("SELECT estado FROM egreso"))) == ["completo", "pendiente_hc", "validado"]
-    assert uno(conn, "SELECT count(*) FROM censo_diario WHERE estado = 'cerrado'") == 6
+    assert uno(conn, "SELECT count(*) FROM censo_diario WHERE estado = 'cerrado'") == 15
+    assert uno(conn, "SELECT con_vm FROM renoxi_del_dia('2026-11-07') WHERE servicio_id = 'cuidados-criticos'") == 1
 
 
 @pytest.mark.parametrize(
@@ -208,7 +213,7 @@ def test_auditoria(conn):
 
 def test_rol_lectura(conn):
     conn.execute(text("SET LOCAL ROLE egresos_lectura"))
-    assert uno(conn, "SELECT count(*) FROM v_tablero") == 2
+    assert uno(conn, "SELECT count(*) FROM v_tablero") == 5
     rechaza(conn, "42501", "SELECT * FROM paciente")
 
 

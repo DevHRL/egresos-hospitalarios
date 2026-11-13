@@ -675,7 +675,7 @@ Se implementa el supuesto indicado y se ajusta cuando haya respuesta.
 | Tema | Supuesto para esta tarea | Quién decide |
 |---|---|---|
 | Cama dada de **baja** sin reemplazo. Hoy el prototipo la devuelve como libre al recibirla, y `camas-y-mantenimiento.md` dice que la baja es definitiva | La base lo permite. Al corregir `dominio/`, el activo pasa a `de_baja` y el puesto sigue fuera hasta instalar otro | Estadística y Mantenimiento |
-| Cuál dotación se reporta a DIRESA y RENOXI (3.6) | Se emiten ambas bases. La oficial de Medicina es 42 por departamento y no se compara hasta mapear Medicina A | Estadística |
+| Cuál dotación se reporta a DIRESA y RENOXI (3.6) | Se emiten ambas bases. La oficial de Medicina es 42 por departamento y se compara con las 53 del mapeo (Medicina A mapeada el 2026-11-12) | Estadística |
 | Si una cama fuera de servicio resta días-cama (3.7) | No resta en la base `mapeo`, igual que el prototipo | Estadística |
 | Extranjeros y pacientes NN (1.1b) | `tipo_documento`, incluido `sin_documento` | Admisión |
 | HC única por paciente (1.2) | `n_hc` único | Admisión |
@@ -761,3 +761,27 @@ Ver la [decisión 0007](../decisiones/0007-orden-al-departamento-seis-cuentas.md
 
 **Cifras que cambian.** Maestros: 1 piso, 37 zonas, 29 camas, 29 activos y 7
 cuentas (seis y `sistema`). `v_tablero` tiene 2 filas.
+
+## 16. Cambios del 2026-11-12
+
+Ver la [decisión 0008](../decisiones/0008-uci-quemados-y-estados-de-cama.md).
+
+- **UCI y Quemados incorporados.** `cuidados-criticos` y `quemados` pasan a captura
+  digital y reciben fecha de arranque. El plano del piso 2 suma su ala, al norte del
+  hall de ascensores; Medicina B e Intermedios se desplazan 38 m al sur.
+- **Quién designa.** `ingreso/confirmar` admite `departamento` y `enfermeria`; además,
+  `asegurar_designa` exige que la cuenta designe en el departamento de la orden: la
+  cuenta del departamento en el suyo, la enfermería de una unidad solo si su
+  departamento no tiene esa cuenta.
+- **Sin migración.** La forma de las tablas no cambia.
+
+**Cifras que cambian.** Maestros: 71 zonas, 43 camas, 43 activos y 9 cuentas.
+`v_tablero` tiene 4 filas. Demostración: 22 pacientes, 22 órdenes (19 ingresadas),
+19 hospitalizaciones (16 abiertas), 5 movimientos de soporte (uno de VM) y 12 censos
+cerrados.
+
+**Medicina A (decisión [0009](../decisiones/0009-medicina-a-en-el-piso-2.md)).** El
+mismo día se suma `medicina-a` a la captura digital, con su plano y la cuenta
+`medicina.a`. Sin migración. Cifras: 95 zonas, 67 camas, 67 activos y 10 cuentas;
+`v_tablero` tiene 5 filas. Demostración: 27 pacientes, 27 órdenes (24 ingresadas),
+24 hospitalizaciones (21 abiertas), 6 movimientos de soporte y 15 censos cerrados.

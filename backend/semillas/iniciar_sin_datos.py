@@ -21,9 +21,9 @@ from sqlalchemy import create_engine, text
 
 from app.config import es_demo, url_owner
 from semillas.cargar_demostracion import TABLAS
-from semillas.cargar_maestros import cargar as cargar_maestros, exportar
+from semillas.cargar_maestros import DIGITALES, cargar as cargar_maestros, exportar
 
-INCORPORADOS = ("medicina-b", "medicina-intermedios")
+INCORPORADOS = tuple(sorted(DIGITALES))
 
 
 def cargar_clinicos(conexion, datos: dict) -> None:
@@ -64,7 +64,7 @@ def principal() -> None:
     if not a.confirmar:
         print("No se borró nada. Con --confirmar se haría esto:")
         print("  - borrar pacientes, órdenes, hospitalizaciones, movimientos, censos, egresos, mantenimiento y bitácora;")
-        print("  - cargar estructura, plano, las seis cuentas, dotación, parámetros, CIE-10 y médicos;")
+        print("  - cargar estructura, plano, las cuentas, dotación, parámetros, CIE-10 y médicos;")
         print(f"  - arranque de Medicina B e Intermedios: {a.arranque};")
         print(f"  - reloj de la demostración: {reloj or 'apagado (producción): hora real'}.")
         return

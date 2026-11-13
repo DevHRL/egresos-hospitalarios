@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Tooltip } from '@hrl/core-ui'
-import { acotar, areaLibre, camaraHacia, camaraInicial, camaraSobre, deriva, escalaBase, proyector, vuelo } from './camara3d.js'
+import { acotar, areaLibre, camaraGeneral, camaraHacia, camaraInicial, camaraSobre, camaraSobreCaja, deriva, escalaBase, proyector, vuelo } from './camara3d.js'
 
 /* Cámara guiada del plano 3D. Quien usa el plano no la mueve a mano: la
    mueve el sistema al elegir una cama o una habitación (en el plano o en la
@@ -22,11 +22,15 @@ const SIN_MARGENES = { arriba: 16, abajo: 16, izquierda: 16, derecha: 16 }
 /* La deriva se pinta a la mitad de cuadros: es lenta y así gasta menos. */
 const CUADROS_DERIVA = 2
 
-/* `foco` es la habitación a encuadrar; `objetivo` ({ clave, azimut, elevacion,
+/* `caja` fija la escala del plano (no cambia al cambiar de área); `general`,
+   lo que encuadra la vista general (el área elegida; sin ella, toda la caja).
+   Al cambiar `general` la cámara vuela hasta ahí.
+
+   `foco` es la habitación a encuadrar; `objetivo` ({ clave, azimut, elevacion,
    centro }) dice además desde dónde mirarla y qué centrar. Cada `clave` nueva
    anima la cámara hasta ahí (girando por el camino más corto). */
-export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null, objetivo = null, onPulsar, onSalirFoco }) {
-  const [camara, setCamaraEstado] = useState(() => camaraInicial(caja))
+export function useCamara3d({ tamano, caja, general = null, margenes = SIN_MARGENES, foco = null, objetivo = null, onPulsar, onSalirFoco }) {
+  const [camara, setCamaraEstado] = useState(() => camaraInicial(general ?? caja))
   const actual = useRef(camara)
   const animacion = useRef(0)
   const cuadro = useRef(0)
@@ -91,15 +95,36 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
     }
   }, [derivar])
 
-  /* Otro piso u otro servicio: se vuelve a la vista inicial. */
-  const claveCaja = `${caja.x0},${caja.y0},${caja.x1},${caja.y1}`
-  useEffect(() => {
-    destinoRef.current = camaraInicial(caja)
-    fijar(destinoRef.current)
-    // Solo cuando cambia lo que se encuadra.
-  }, [claveCaja])
+  /* La vista general desde la cámara `desde` (con su giro): el área entera. */
+  const vistaDelArea = (desde) => (general
+    ? camaraSobreCaja(desde, general, area, base)
+    : { ...desde, zoom: 1, centro: camaraInicial(caja).centro })
 
-  /* Enfocar una habitación o volver a ver todo el piso, con el giro que haya. */
+  /* Se deja la cámara en `c` sin animar y la deriva sigue desde ahí. */
+  const reposar = (c) => {
+    cancelAnimationFrame(animacion.current)
+    destinoRef.current = c
+    fijar(c)
+    derivar()
+  }
+
+  /* Vista general canónica: el área con su giro propio (ver `azimutGeneral`). */
+  const generalCanonica = () => vistaDelArea(general ? camaraGeneral(general) : camaraInicial(caja))
+
+  /* Otro piso: se encuadra el área sin animar (también la primera vez que se
+     conoce el tamaño). Otra área del mismo piso: la cámara vuela hasta ella. */
+  const claveCaja = `${caja.x0},${caja.y0},${caja.x1},${caja.y1}`
+  const claveGeneral = general ? `${general.x0},${general.y0},${general.x1},${general.y1}` : ''
+  const encuadrada = useRef(null)
+  useEffect(() => {
+    if (!tamano.ancho) return
+    if (encuadrada.current !== claveCaja) reposar(generalCanonica())
+    else if (!foco) animarA(generalCanonica())
+    encuadrada.current = claveCaja
+    // Solo cuando cambia lo que se encuadra.
+  }, [claveCaja, claveGeneral, tamano.ancho > 0])
+
+  /* Enfocar una habitación o volver a ver el área, con el giro que haya. */
   const focoId = foco ? `${foco.id}|${objetivo?.clave ?? ''}` : null
   const habiaFoco = useRef(false)
   useEffect(() => {
@@ -110,7 +135,7 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
       animarA(objetivo ? camaraHacia(desde, foco, area, base, objetivo) : camaraSobre(desde, foco, area, base))
     } else if (habiaFoco.current) {
       habiaFoco.current = false
-      animarA({ ...destinoRef.current, zoom: 1, centro: camaraInicial(caja).centro })
+      animarA(vistaDelArea(destinoRef.current))
     }
     // Reacciona al cambio de habitación, no a cada render.
   }, [focoId, tamano.ancho > 0])
@@ -118,7 +143,7 @@ export function useCamara3d({ tamano, caja, margenes = SIN_MARGENES, foco = null
   const girar = (grados) => animarA(acotar({ ...destinoRef.current, azimut: destinoRef.current.azimut + grados }))
   const vistaGeneral = () => {
     if (foco) onSalirFoco?.()
-    animarA(camaraInicial(caja))
+    animarA(generalCanonica())
   }
 
   /* Teclado: Esc vuelve a ver todo el piso. Elegir camas se hace con la lista. */
@@ -155,7 +180,7 @@ export const ControlesCamara = memo(function ControlesCamara({ girar, vistaGener
   return (
     <div className="escena3d__controles" role="toolbar" aria-label="Vista del plano 3D">
       <div className="plano-flotante">
-        <Button tone={hayFoco ? 'blue' : 'ghost'} size="sm" icon={hayFoco ? 'sh-close' : 'sh-home'} onClick={vistaGeneral} aria-label={hayFoco ? `Salir de ${nombreFoco} y ver todo el piso (Esc)` : 'Vista general del piso'}>
+        <Button tone={hayFoco ? 'blue' : 'ghost'} size="sm" icon={hayFoco ? 'sh-close' : 'sh-home'} onClick={vistaGeneral} aria-label={hayFoco ? `Salir de ${nombreFoco} y ver toda el área (Esc)` : 'Vista general del área'}>
           Vista general
         </Button>
         <span className="plano-flotante__separador" aria-hidden="true" />

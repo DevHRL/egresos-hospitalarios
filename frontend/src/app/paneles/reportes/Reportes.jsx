@@ -45,8 +45,11 @@ const GRUPO_RENOXI = {
   'uci-cirugia': 'UCI (con/sin VM)',
   'uci-pediatria': 'UCI (con/sin VM)',
   'medicina-intermedios': 'Intermedios (con/sin O2)',
+  'medicina-a': 'Hospitalización adultos (con/sin O2)',
   'medicina-b': 'Hospitalización adultos (con/sin O2)',
 }
+/* Quemados aún no tiene fila asignada en el formulario (decisión 0008). */
+const grupoRenoxi = (servicioId) => GRUPO_RENOXI[servicioId] ?? 'Sin fila asignada'
 
 export function Renoxi() {
   const { estado, cuenta, hacer } = useApp()
@@ -65,8 +68,8 @@ export function Renoxi() {
         <StatCard label="Estado del día" value={cargado ? 'Cargado' : 'Sin cargar'} note={cargado ? verFechaHora(cargado.cargadoEn) : verFecha(dia)} />
       </Grid>
       <Card title={`RENOXI del ${verFecha(dia)}`} subtitle="En el mismo orden del formulario web." actions={<Input label="Día" labelHidden kind="date" value={dia} onChange={(e) => setDia(e.target.value)} />}>
-        <DataTable rowKey={(f) => f.servicioId} rows={[...filas].sort((a, b) => GRUPO_RENOXI[a.servicioId].localeCompare(GRUPO_RENOXI[b.servicioId]) * -1)} columns={[
-          { key: 'grupo', label: 'Grupo', width: 280, render: (f) => GRUPO_RENOXI[f.servicioId] },
+        <DataTable rowKey={(f) => f.servicioId} rows={[...filas].sort((a, b) => grupoRenoxi(a.servicioId).localeCompare(grupoRenoxi(b.servicioId)) * -1)} columns={[
+          { key: 'grupo', label: 'Grupo', width: 280, render: (f) => grupoRenoxi(f.servicioId) },
           { key: 'servicio', label: 'Servicio', render: (f) => nombreServicio(f.servicioId) },
           { key: 'camas', label: 'Camas', width: 80, align: 'right' },
           { key: 'operativas', label: 'Operativas', width: 100, align: 'right' },
@@ -166,7 +169,7 @@ export function Tablero() {
         <StatCard label="Disponibles" value={total.disponibles} />
         <StatCard label="Con O2" value={total.conO2} />
         <StatCard label="Con VM" value={total.conVM} />
-        <StatCard label="Fuera de servicio" value={total.fuera} severity={total.fuera ? 'suspect' : 'normal'} />
+        <StatCard label="En mantenimiento" value={total.fuera} severity={total.fuera ? 'suspect' : 'normal'} />
       </Grid>
       <Card title="Por servicio" subtitle="Solo lectura, sin datos personales.">
         <DataTable rowKey={(f) => f.id} rows={filas} columns={[
@@ -176,7 +179,7 @@ export function Tablero() {
           { key: 'ocupadas', label: 'Ocupadas', width: 100, align: 'right' },
           { key: 'disponibles', label: 'Disponibles', width: 100, align: 'right' },
           { key: 'conO2', label: 'Con O2', width: 90, align: 'right' },
-          { key: 'fuera', label: 'Fuera de servicio', width: 130, align: 'right' },
+          { key: 'fuera', label: 'En mantenimiento', width: 130, align: 'right' },
           { key: 'pct', label: 'Ocupación', width: 100, align: 'right', render: (f) => pct(f.ocupadas, f.operativas) },
         ]} />
       </Card>

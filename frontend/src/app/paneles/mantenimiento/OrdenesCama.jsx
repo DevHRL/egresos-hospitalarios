@@ -11,7 +11,7 @@ function DialogoRetiro({ orden, onCerrar }) {
   const { error, enviar } = useEnvio(onCerrar)
   const [conReemplazo, setReemplazo] = useState('no')
   return (
-    <DialogoAccion titulo="Confirmar retiro" subtitulo="Sin reemplazo, el puesto queda fuera de servicio hasta que la cama vuelva." textoConfirmar="Confirmar retiro" onCerrar={onCerrar} error={error} onConfirmar={() => enviar('mant/retirar', { ordenId: orden.id, conReemplazo: conReemplazo === 'si' }, 'Retiro confirmado.')}>
+    <DialogoAccion titulo="Confirmar retiro" subtitulo="Sin reemplazo, el puesto queda en mantenimiento hasta que la cama vuelva." textoConfirmar="Confirmar retiro" onCerrar={onCerrar} error={error} onConfirmar={() => enviar('mant/retirar', { ordenId: orden.id, conReemplazo: conReemplazo === 'si' }, 'Retiro confirmado.')}>
       <SegmentedControl label="¿Se deja una cama de reemplazo?" value={conReemplazo} options={[{ value: 'no', label: 'Sin reemplazo' }, { value: 'si', label: 'Con reemplazo' }]} onChange={setReemplazo} />
     </DialogoAccion>
   )

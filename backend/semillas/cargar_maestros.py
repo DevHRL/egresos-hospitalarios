@@ -9,8 +9,10 @@ from sqlalchemy import create_engine, text
 from app.config import url_owner, variable
 from app.sesion import hash_clave
 
-# UCI vuelve a papel el 2026-11-11: sale del prototipo hasta tener su mapeo físico.
-DIGITALES = {"medicina-b", "medicina-intermedios"}
+# UCI salió del prototipo el 2026-11-11; el 2026-11-12 vuelve con su mapeo físico, junto
+# con Quemados (mismo pasillo del piso 2). Decisión 0008. Medicina A se suma con su
+# mapeo el mismo día (decisión 0009).
+DIGITALES = {"medicina-a", "medicina-b", "medicina-intermedios", "cuidados-criticos", "quemados"}
 REPORTE_DIRESA = {
     **dict.fromkeys(["medicina", "infectologia", "obstetricia", "pediatria", "cirugia", "ginecologia", "salud-mental", "oncologia"], "hospitalizacion"),
     **dict.fromkeys(["uci-medicina", "uci-cirugia", "uci-pediatria", "uci-neonatologia", "quemados"], "uci"),

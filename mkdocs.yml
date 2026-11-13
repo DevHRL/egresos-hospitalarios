@@ -28,5 +28,7 @@ nav:
       - 0005 · Ingreso obligatorio y reemplazo de Aletheia: decisiones/0005-ingreso-obligatorio-reemplazo-aletheia.md
       - 0006 · Una credencial por área: decisiones/0006-credencial-por-area.md
       - 0007 · Orden al departamento y seis cuentas: decisiones/0007-orden-al-departamento-seis-cuentas.md
+      - 0008 · UCI, Quemados y estados de cama: decisiones/0008-uci-quemados-y-estados-de-cama.md
+      - 0009 · Medicina A en el piso 2: decisiones/0009-medicina-a-en-el-piso-2.md
 plugins:
   - techdocs-core

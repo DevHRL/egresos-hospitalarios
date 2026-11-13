@@ -23,7 +23,7 @@ const TOKENS = {
 }
 
 /* Color de la frazada según el estado (el mismo que la leyenda). */
-const ESTADO_A_TOKEN = { libre: 'exito', ocupada: 'info', ocupada_o2: 'info', ocupada_vm: 'aviso', bloqueada: 'apagado', fuera: 'peligro' }
+const ESTADO_A_TOKEN = { libre: 'exito', ocupada: 'info', falla: 'aviso', mantenimiento: 'peligro' }
 
 function leerRgb(texto) {
   const n = (texto.match(/-?[\d.]+(e-?\d+)?/gi) ?? []).map(Number)
@@ -57,6 +57,13 @@ export function resolverPaleta(elemento) {
     linea: mezclar(base.texto, base.superficie, 0.36),
     detalle: mezclar(base.texto, base.superficie, 0.11),
     estacion: mezclar(base.info, base.superficie, 0.08),
+    /* Cabeza y brazos del paciente: un tono cálido claro, del token de aviso. */
+    piel: mezclar(base.aviso, base.superficie, 0.32),
+    /* Selección: luz suave en el piso bajo la cama y un tinte muy leve en el
+       piso de la habitación enfocada, en vez de contornos de color. */
+    halo: mezclar(base.vivo, base.superficie, 0.3),
+    'halo-suave': mezclar(base.vivo, base.superficie, 0.12),
+    'piso-foco': mezclar(base.vivo, base.superficie, 0.05),
   }
   for (const [estado, token] of Object.entries(ESTADO_A_TOKEN)) tonos[`frazada:${estado}`] = mezclar(base[token], base.superficie, 0.62)
 
@@ -75,6 +82,7 @@ export function resolverPaleta(elemento) {
   }
   return {
     color,
+    resplandor: css(base.vivo),
     texto: css(base.texto),
     apagado: css(base.apagado),
     superficie: css(base.superficie),
@@ -118,6 +126,8 @@ function patronRayado(ctx, color) {
 }
 
 const SIN_GUION = []
+/* Radio del resplandor del halo, en px CSS. */
+const BRILLO = 18
 
 function trazar(ctx, p, cerrar) {
   ctx.beginPath()
@@ -158,7 +168,13 @@ export function pintar(ctx, figuras, paleta, { ancho, alto, dpr, alCargarIcono }
           relleno = f.relleno
           ctx.fillStyle = relleno === 'rayado' ? patronRayado(ctx, paleta.peligro) : paleta.color(relleno)
         }
+        /* Resplandor solo en el halo de la cama elegida: uno por cuadro. */
+        if (f.brillo) {
+          ctx.shadowColor = paleta.resplandor
+          ctx.shadowBlur = BRILLO * dpr
+        }
         ctx.fill()
+        if (f.brillo) ctx.shadowBlur = 0
       }
       if (f.trazo) {
         if (f.trazo !== trazo) ctx.strokeStyle = paleta.color(trazo = f.trazo)
@@ -206,6 +222,24 @@ export function pintar(ctx, figuras, paleta, { ancho, alto, dpr, alCargarIcono }
       ctx.strokeText(f.texto, f.x + 7, f.y)
       ctx.fillStyle = paleta.texto
       ctx.fillText(f.texto, f.x + 7, f.y)
+      /* O2 o VM: recuadrada junto al código, con el color del texto. */
+      if (f.marca) {
+        const mitad = ctx.measureText(f.texto).width / 2
+        const x = f.x + 7 + mitad + 4
+        const ancho = ctx.measureText(f.marca).width + 6
+        const alto = paleta.tamanoRotulo + 2
+        ctx.lineWidth = 1
+        ctx.fillStyle = paleta.superficie
+        ctx.strokeStyle = paleta.texto
+        ctx.beginPath()
+        ctx.rect(x, f.y - alto + 3, ancho, alto)
+        ctx.fill()
+        ctx.stroke()
+        ctx.fillStyle = paleta.texto
+        ctx.textAlign = 'left'
+        ctx.fillText(f.marca, x + 3, f.y)
+        grosor = 1
+      }
     }
   }
   ctx.globalAlpha = 1

@@ -75,7 +75,16 @@ seguidos giran 180° sin cortarse.
 
 Al enfocar algo, el resto baja a una opacidad de 0,14. Al cambiar de foco, lo anterior
 se apaga mientras lo nuevo se enciende, cada zona con su propio valor (nunca un cambio
-de golpe). Implementación: `useLuces` en `paneles/camas/VistaMapa.jsx`.
+de golpe). Implementación: `useFundido` en `paneles/camas/VistaMapa.jsx`.
+
+El mismo fundido sirve para el **área activa del piso**: al elegir otra área en el
+selector, sus habitaciones suben a plena opacidad y las de la anterior bajan a 0,4;
+en cada cama, la versión neutra y la de color se funden (la de color se puede
+elegir desde la mitad del fundido). En la planta 2D lo hace CSS con `var(--duration-slow)`.
+La vista general encuadra solo el área elegida (`camaraGeneral` y `camaraSobreCaja` en
+`camara3d.js`), con su lado largo cruzando la pantalla; cambiar de área es un vuelo.
+Los códigos de cama solo aparecen en la habitación enfocada y entran con el mismo
+fundido. La cama elegida no se contornea: se posa sobre un halo suave con resplandor.
 
 ### 4.4 Deriva en reposo
 

@@ -70,7 +70,7 @@ export function CensoDiario() {
   const columnas = [
     { key: 'cama', label: 'Cama', width: 70, render: (f) => <strong>{f.camaCodigo}</strong> },
     { key: 'hc', label: 'N° HC', width: 80, render: (f) => f.hc ?? '' },
-    { key: 'nombre', label: 'Paciente', render: (f) => (f.vacia ? <span className="texto-apoyo">{ESTADOS_CAMA_MAPA[f.estadoCama].label}</span> : f.nombre) },
+    { key: 'nombre', label: 'Paciente', render: (f) => (f.vacia ? <span className="texto-apoyo">{ESTADOS_CAMA_MAPA[f.estadoCama]?.label ?? 'Bloqueada'}</span> : f.nombre) },
     { key: 'edad', label: 'Edad / sexo', width: 66, render: (f) => (f.vacia ? '' : `${edad(f.nacimiento, dia)} / ${f.sexo}`) },
     { key: 'ingreso', label: 'F. ingreso', width: 92, render: (f) => (f.vacia ? '' : verFecha(diaDe(f.fechaIngreso))) },
     { key: 'dias', label: 'Días', width: 50, align: 'right', render: (f) => f.dias ?? '' },
@@ -119,7 +119,7 @@ export function CensoDiario() {
             {r?.observacion && <p className="texto-apoyo">Observación: {r.observacion}</p>}
             <div className="firma-censo"><span>Firma de enfermería</span></div>
           </Card>
-          <Card title="Novedades de camas" subtitle={inventario.cuadra ? `Inventario cuadrado: ${inventario.fuera} fuera de servicio y ${inventario.ordenes} órdenes abiertas.` : `Inventario sin cuadrar: ${inventario.fuera} fuera de servicio y ${inventario.ordenes} órdenes abiertas.`}>
+          <Card title="Novedades de camas" subtitle={inventario.cuadra ? `Inventario cuadrado: ${inventario.fuera} en mantenimiento y ${inventario.ordenes} órdenes abiertas.` : `Inventario sin cuadrar: ${inventario.fuera} en mantenimiento y ${inventario.ordenes} órdenes abiertas.`}>
             <DataTable
               rowKey={(n) => n.clave}
               rows={novedades}

@@ -16,7 +16,7 @@ export const ALTO_MURO = 0.9
 export const ELEVACION_MIN = 12
 export const ELEVACION_MAX = 90
 export const ZOOM_MIN = 0.35
-export const ZOOM_MAX = 10
+export const ZOOM_MAX = 24
 export const ISOMETRICO = Math.atan(1 / Math.SQRT2) * (180 / Math.PI)
 
 const RAD = Math.PI / 180
@@ -147,6 +147,20 @@ export function camaraSobre(camara, zona, area, base, holgura = 0.72) {
   const escala = Math.min((area.ancho * holgura) / ancho, (area.alto * holgura) / alto)
   return acotar({ ...camara, zoom: escala / base, centro: { x: zona.x + zona.ancho / 2, y: zona.y + zona.alto / 2 } })
 }
+
+/* Holgura de la vista general: el área llena casi toda la pantalla. */
+export const HOLGURA_GENERAL = 0.94
+
+/* Giro de la vista general de un área: su lado largo cruza la pantalla y aún
+   se ven dos caras de cada muro. A 45° un área alargada queda en diagonal y
+   deja las esquinas vacías. */
+export const azimutGeneral = (caja) => (caja.x1 - caja.x0 >= caja.y1 - caja.y0 ? 30 : 60)
+export const camaraGeneral = (caja) => ({ ...camaraInicial(caja), azimut: azimutGeneral(caja) })
+
+/* Cámara que encuadra una caja ({ x0, y0, x1, y1 }, por ejemplo un área del
+   piso) con el giro y la inclinación de `camara`. */
+export const camaraSobreCaja = (camara, caja, area, base, holgura = HOLGURA_GENERAL) =>
+  camaraSobre(camara, { x: caja.x0, y: caja.y0, ancho: caja.x1 - caja.x0, alto: caja.y1 - caja.y0 }, area, base, holgura)
 
 /* Giro para mirar una habitación desde el pasillo más cercano (su lado
    abierto), con un poco de ángulo para ver dos muros y las camas de tres

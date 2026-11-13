@@ -10,8 +10,11 @@ export const departamentoDe = (servicioId) => servicioPorId(servicioId)?.departa
 export const INICIO_DEMO = '2026-11-05T07:00'
 export const AHORA_DEMO = '2026-11-08T10:30'
 
+const A = 'medicina-a'
 const B = 'medicina-b'
 const I = 'medicina-intermedios'
+const UCI = 'cuidados-criticos'
+const QUE = 'quemados'
 const SISTEMA = { id: 'sistema', rol: 'sistema', servicios: [] }
 const MEDICINA = 'medicina'
 
@@ -40,6 +43,9 @@ const PACIENTES = [
   ['Yuyarima Demo, Tomás', 'M', '1951-10-01'],
   ['Manuyama Demo, Sonia', 'F', '1985-07-13'],
   ['Curitima Demo, Abel', 'M', '1979-02-02'],
+  ['Sangama Demo, Rita', 'F', '1963-05-17'],
+  ['Panduro Demo, Elías', 'M', '1970-09-28'],
+  ['Fasabi Demo, Lucía', 'F', '1982-01-09'],
 ].map(([nombres, sexo, nacimiento], i) => ({ hc: String(900101 + i), dni: String(90000101 + i), nombres, sexo, nacimiento }))
 
 const cama = (codigo) => `cama-${codigo.toLowerCase()}`
@@ -52,14 +58,14 @@ export function crearSemilla(plano) {
 
   const ingreso = (i, servicioId, codigo, f, origen = 'emergencia', dx = 'Neumonía') => {
     reloj(f)
-    accion('orden/registrar', { paciente: PACIENTES[i], origen, departamentoId: MEDICINA, medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
-    /* El departamento designa la cama; `servicioId` solo dice en qué área cae. */
-    if (!cama(codigo).includes(servicioId === B ? 'cama-b-' : 'cama-i-')) throw new Error(`La cama ${codigo} no es de ${servicioId}`)
+    accion('orden/registrar', { paciente: PACIENTES[i], origen, departamentoId: departamentoDe(servicioId), medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
+    /* Quien designa elige la cama; `servicioId` solo dice en qué área cae. */
+    if (e.camas.find((c) => c.id === cama(codigo))?.servicioId !== servicioId) throw new Error(`La cama ${codigo} no es de ${servicioId}`)
     accion('ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama(codigo), fechaHora: f })
   }
   const cerrar = (dia, f) => {
     reloj(f)
-    for (const servicioId of [B, I]) {
+    for (const servicioId of [A, B, I, UCI, QUE]) {
       const r = conteo(servicioId, dia)
       accion('censo/cerrar', { servicioId, dia, conteoFisico: r, observacion: '' })
     }
@@ -89,12 +95,23 @@ export function crearSemilla(plano) {
     [11, B, 'B-22', '2026-11-05T09:00', 'emergencia', 'Crisis hipertensiva'],
     [12, I, 'I-01', '2026-11-05T09:10', 'emergencia', 'Insuficiencia respiratoria'],
     [13, I, 'I-02', '2026-11-05T09:20', 'emergencia', 'Infarto cerebral'],
+    [19, UCI, 'U-03', '2026-11-05T09:30', 'emergencia', 'Shock séptico'],
+    [20, UCI, 'U-05', '2026-11-05T09:40', 'emergencia', 'Neumonía grave'],
+    [21, QUE, 'Q-03', '2026-11-05T09:50', 'emergencia', 'Quemadura de segundo grado'],
+    [22, A, 'A-03', '2026-11-05T10:00', 'emergencia', 'Neumonía'],
+    [23, A, 'A-08', '2026-11-05T10:10', 'emergencia', 'Insuficiencia cardíaca'],
+    [24, A, 'A-12', '2026-11-05T10:20', 'consulta_externa', 'Diabetes descompensada'],
+    [25, A, 'A-19', '2026-11-05T10:30', 'emergencia', 'Dengue con signos de alarma'],
+    [26, A, 'A-24', '2026-11-05T10:40', 'emergencia', 'Tuberculosis pulmonar'],
   ]
   for (const f of fijos) ingreso(...f)
   reloj('2026-11-05T11:00')
   accion('soporte/cambiar', { hospitalizacionId: hospDe(0), soporte: 'o2', fechaHora: '2026-11-05T11:00' })
   accion('soporte/cambiar', { hospitalizacionId: hospDe(5), soporte: 'o2', fechaHora: '2026-11-05T11:00' })
   accion('soporte/cambiar', { hospitalizacionId: hospDe(12), soporte: 'o2', fechaHora: '2026-11-05T11:00' })
+  accion('soporte/cambiar', { hospitalizacionId: hospDe(19), soporte: 'vm', fechaHora: '2026-11-05T11:00' })
+  accion('soporte/cambiar', { hospitalizacionId: hospDe(20), soporte: 'o2', fechaHora: '2026-11-05T11:00' })
+  accion('soporte/cambiar', { hospitalizacionId: hospDe(23), soporte: 'o2', fechaHora: '2026-11-05T11:00' })
   cerrar('2026-11-05', '2026-11-06T07:30')
 
   /* 6 de noviembre: un egreso ya validado y un ingreso. */

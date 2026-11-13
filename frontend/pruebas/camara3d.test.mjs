@@ -117,3 +117,15 @@ test('la deriva en reposo es sutil y entra sin salto', () => {
   assert.ok(Math.max(...giros.map(Math.abs)) < 2.5)
   assert.equal(deriva(c, 30).zoom, c.zoom)
 })
+
+test('la vista general encuadra solo el área: más cerca que todo el piso y centrada en ella', async () => {
+  const { areaLibre, camaraInicial, camaraSobreCaja, escalaBase } = await import('../src/app/paneles/plano/camara3d.js')
+  const piso = { x0: 0, y0: 0, x1: 121, y1: 55 }
+  const intermedios = { x0: 3.5, y0: 38, x1: 16.5, y1: 55 }
+  const area = areaLibre({ ancho: 900, alto: 700 }, { arriba: 16, abajo: 16, izquierda: 16, derecha: 16 })
+  const base = escalaBase(piso, area)
+  const c = camaraSobreCaja(camaraInicial(piso), intermedios, area, base)
+  assert.ok(c.zoom > 3, `zoom ${c.zoom}`)
+  assert.deepEqual(c.centro, { x: 10, y: 46.5 })
+  assert.equal(c.azimut, camaraInicial(piso).azimut, 'conserva el giro')
+})

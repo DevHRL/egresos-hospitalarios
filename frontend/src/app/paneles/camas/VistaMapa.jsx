@@ -1,10 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { rectCama } from '../../dominio/plano.js'
-import { ESTADOS_CAMA_MAPA } from '../../dominio/consultas.js'
+import { ESTADOS_CAMA_MAPA, MARCA_SOPORTE } from '../../dominio/consultas.js'
 import { useTamano } from '../plano/comun.js'
-import { servicioPorId } from '../../datos/catalogo.js'
+import { nombreServicio } from '../comun.jsx'
 import { ControlesCamara, useCamara3d } from '../plano/Escena3D.jsx'
-import { OCUPADA, bajoElPuntero, construirEscena } from '../plano/escena3d.js'
+import { bajoElPuntero, construirEscena } from '../plano/escena3d.js'
 import { azimutDesdePasillo, suavizar } from '../plano/camara3d.js'
 import { pintar, resolverPaleta } from '../plano/pintura3d.js'
 
@@ -20,39 +20,77 @@ const FUNDIDO_MS = 900
 /* Inclinación al enfocar: lo bastante alta para ver dentro de la habitación. */
 const ELEVACION_FOCO = 50
 
-/* A lo largo: las habitaciones del servicio. A lo ancho: todo el piso, para
-   orientarse con el corredor y la estación de enfermeras. */
-function encuadre(propias, todas) {
-  return {
-    x0: Math.min(...propias.map((z) => z.x)) - 0.5,
-    y0: Math.min(...todas.map((z) => z.y)) - 0.5,
-    x1: Math.max(...propias.map((z) => z.x + z.ancho)) + 0.5,
-    y1: Math.max(...todas.map((z) => z.y + z.alto)) + 0.5,
-  }
-}
+const cajaDe = (zonas) => ({
+  x0: Math.min(...zonas.map((z) => z.x)),
+  y0: Math.min(...zonas.map((z) => z.y)),
+  x1: Math.max(...zonas.map((z) => z.x + z.ancho)),
+  y1: Math.max(...zonas.map((z) => z.y + z.alto)),
+})
 
-/* Lo que queda casi todo fuera del encuadre no se dibuja a medias. */
-const entraEn = (z, b) => (Math.min(z.x + z.ancho, b.x1) - Math.max(z.x, b.x0)) / z.ancho >= 0.6
+/* Encuadre de un área: sus habitaciones y un margen corto, lo justo para ver
+   el corredor que las une sin traer el resto del piso. */
+const MARGEN_AREA = 1.5
+function encuadre(propias) {
+  const b = cajaDe(propias)
+  return { x0: b.x0 - MARGEN_AREA, y0: b.y0 - MARGEN_AREA, x1: b.x1 + MARGEN_AREA, y1: b.y1 + MARGEN_AREA }
+}
 
 /* Ícono del sprite del kit con un solo `<use>` (planta 2D). */
 function IconoEstado({ x, y, nombre, lado = 12 }) {
   return <use href={`#${nombre}`} x={x} y={y} width={lado} height={lado} className="mapa-icono" aria-hidden="true" />
 }
 
-const iconoDe = (info) => (info.falla ? 'sh-warn' : ESTADOS_CAMA_MAPA[info.estado].icono)
+const iconoDe = (info) => ESTADOS_CAMA_MAPA[info.estado].icono
+
+/* Paciente visto desde arriba: cabeza junto a la cabecera y el cuerpo bajo la
+   frazada. `s` va de la cabecera a los pies y `t` de un costado al otro, ambos
+   de 0 a 1 sobre el rectángulo de la cama. */
+function PacientePlanta({ x, y, ancho, alto, rotacion }) {
+  const girada = rotacion % 180 !== 0
+  const [L, W] = girada ? [ancho, alto] : [alto, ancho]
+  const punto = {
+    0: (s, t) => [x + t * ancho, y + s * alto],
+    180: (s, t) => [x + (1 - t) * ancho, y + (1 - s) * alto],
+    270: (s, t) => [x + s * ancho, y + t * alto],
+    90: (s, t) => [x + (1 - s) * ancho, y + (1 - t) * alto],
+  }[rotacion]
+  const [hx, hy] = punto(0.16, 0.5)
+  const [ax, ay] = punto(0.29, 0.18)
+  const [bx, by] = punto(0.9, 0.82)
+  return (
+    <g className="mapa-paciente" aria-hidden="true">
+      <rect className="mapa-paciente__cuerpo" x={Math.min(ax, bx)} y={Math.min(ay, by)} width={Math.abs(bx - ax)} height={Math.abs(by - ay)} rx={W * 0.22} />
+      <circle className="mapa-paciente__cabeza" cx={hx} cy={hy} r={Math.min(W * 0.2, L * 0.09)} />
+    </g>
+  )
+}
 
 /* Memorizado: solo se vuelve a dibujar si cambian los datos, la selección o la
-   cámara, no cuando la pantalla de arriba cambia por otra cosa. */
-export const VistaMapa = memo(function VistaMapa({ plano, estados, servicios, vista, seleccion, onSeleccionar, tip, texto }) {
-  const propias = plano.zonas.filter((z) => z.tipo === 'habitacion' && servicios.includes(z.servicioId))
-  const clave = propias.map((z) => z.id).join(',')
-  /* Misma caja mientras no cambien las habitaciones: si no, la cámara 3D se
-     reiniciaría con cada cambio de estado. */
-  const caja = useMemo(() => encuadre(propias, plano.zonas), [clave, plano.zonas])
-  const zonas = plano.zonas.filter((z) => entraEn(z, caja) && (z.tipo !== 'habitacion' || servicios.includes(z.servicioId)))
+   cámara, no cuando la pantalla de arriba cambia por otra cosa.
+
+   Se dibuja el piso entero con su distribución, pero la vista general
+   encuadra solo el `area` elegida (`general`); al cambiar de área la cámara
+   vuela hasta la nueva. Solo las habitaciones del área van activas (color de
+   leyenda, se pueden elegir); las demás quedan atenuadas y con camas neutras.
+   `estados` trae las camas de todas las áreas de la cuenta, para fundir
+   también la que se apaga. */
+export const VistaMapa = memo(function VistaMapa({ plano, estados, area, vista, seleccion, onSeleccionar, tip, texto }) {
+  /* El piso entero fija la escala del 3D: no cambia con el área ni con cada
+     cambio de estado (la cámara se reiniciaría). */
+  const caja = useMemo(() => cajaDe(plano.zonas), [plano.zonas])
+  const general = useMemo(
+    () => encuadre(plano.zonas.filter((z) => z.tipo === 'habitacion' && z.servicioId === area)),
+    [area, plano.zonas],
+  )
+  const zonas = plano.zonas
   const porCama = new Map(estados.map((x) => [x.cama.id, x]))
-  const camas = plano.camas.filter((c) => porCama.has(c.id) && zonas.some((z) => z.id === c.zonaId))
   const zonaDe = (c) => plano.zonas.find((z) => z.id === c.zonaId)
+  /* Activa: habitación del área con estado conocido. Pasillos y apoyos no son
+     de ningún área y quedan siempre a la vista. */
+  const esActiva = (z) => z.tipo !== 'habitacion' || z.servicioId === area
+  const camas = plano.camas.filter((c) => zonas.some((z) => z.id === c.zonaId) && (!esActiva(zonaDe(c)) || porCama.has(c.id)))
+  /* Para la lectura del plano: solo las del área. */
+  const delArea = camas.filter((c) => esActiva(zonaDe(c)))
 
   const alPasar = (e) => {
     const g = e.target.closest('[data-cama]')
@@ -66,15 +104,18 @@ export const VistaMapa = memo(function VistaMapa({ plano, estados, servicios, vi
   }
   const claseCama = (id, base) => {
     const info = porCama.get(id)
-    return `${base} mapa-estado--${info.estado}${info.falla ? ' mapa-estado--falla' : ''}${seleccion === id ? ' es-seleccion' : ''}`
+    return `${base} mapa-estado--${info.estado}${seleccion === id ? ' es-seleccion' : ''}`
   }
-  const titulo = servicios.map((id) => servicioPorId(id)?.nombre ?? id).join(' y ')
-  const comun = { zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, texto, seleccion, onSeleccionar, titulo }
+  const titulo = nombreServicio(area)
+  const comun = { zonas, camas, delArea, caja, general, porCama, claseCama, zonaDe, esActiva, area, alPasar, tip, texto, seleccion, onSeleccionar, titulo }
 
   return vista === 'iso' ? <Isometrica {...comun} /> : <Planta {...comun} />
 })
 
-function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, onSeleccionar }) {
+/* En la planta, lo de otra área se apaga con una transición de CSS y sus camas
+   pierden el color de estado, el paciente y los rótulos. Se encuadra el área;
+   lo demás del piso queda en los bordes o fuera de la vista. */
+function Planta({ zonas, camas, general: caja, porCama, claseCama, zonaDe, esActiva, alPasar, tip, onSeleccionar }) {
   const ref = useRef(null)
   const tamano = useTamano(ref)
   const alPulsar = (e) => {
@@ -92,7 +133,7 @@ function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, 
         {tamano.ancho > 0 && (
           <>
             {zonas.map((z) => (
-              <g key={z.id}>
+              <g key={z.id} className={esActiva(z) ? 'mapa-zona' : 'mapa-zona es-inactiva'}>
                 <rect className={`plano-zona plano-zona--${z.tipo}`} x={X(z.x)} y={Y(z.y)} width={z.ancho * escala} height={z.alto * escala} />
                 {z.tipo === 'habitacion' && <text className="plano-rotulo plano-rotulo__codigo" x={X(z.x) + 5} y={Y(z.y) + 15}>{z.codigo}</text>}
                 {z.tipo !== 'habitacion' && z.nombre && z.ancho * escala > z.nombre.length * 6.5 && <text className="mapa-rotulo-apoyo" x={X(z.x + z.ancho / 2)} y={Y(z.y + z.alto / 2)} textAnchor="middle">{z.nombre}</text>}
@@ -100,16 +141,33 @@ function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, 
             ))}
             {camas.map((c) => {
               const r = rectCama(c, zonaDe(c))
-              const info = porCama.get(c.id)
               const [px, py, pw, ph] = [X(r.x), Y(r.y), r.ancho * escala, r.alto * escala]
               const banda = Math.min(pw, ph) * 0.22
               const cabecera = { 0: [px, py, pw, banda], 180: [px, py + ph - banda, pw, banda], 270: [px, py, banda, ph], 90: [px + pw - banda, py, banda, ph] }[c.rotacion]
-              return (
-                <g key={c.id} data-cama={c.id} className={claseCama(c.id, 'mapa-cama')}>
+              const cuerpo = (
+                <>
                   <rect className="mapa-cama__cuerpo" x={px} y={py} width={pw} height={ph} rx="3" />
                   <rect className="mapa-cama__cabecera" x={cabecera[0]} y={cabecera[1]} width={cabecera[2]} height={cabecera[3]} />
-                  <IconoEstado x={px + pw / 2 - 24} y={py + ph / 2 - 6} nombre={iconoDe(info)} />
-                  <text className="mapa-cama__codigo" x={px + pw / 2 + 7} y={py + ph / 2 + 4} textAnchor="middle">{c.codigo}</text>
+                </>
+              )
+              /* La misma clave en las dos formas: al cambiar de área, el color
+                 se funde en vez de saltar. */
+              if (!esActiva(zonaDe(c))) return <g key={c.id} className="mapa-cama mapa-cama--inactiva" aria-hidden="true">{cuerpo}</g>
+              const info = porCama.get(c.id)
+              return (
+                <g key={c.id} data-cama={c.id} className={claseCama(c.id, 'mapa-cama')}>
+                  {cuerpo}
+                  <g className="mapa-cama__detalle">
+                    {info.ocupante && <PacientePlanta x={px} y={py} ancho={pw} alto={ph} rotacion={c.rotacion} />}
+                    <IconoEstado x={px + pw / 2 - 24} y={py + ph / 2 - 6} nombre={iconoDe(info)} />
+                    <text className="mapa-cama__codigo mapa-cama__codigo--iso" x={px + pw / 2 + 7} y={py + ph / 2 + 4} textAnchor="middle">{c.codigo}</text>
+                    {info.soporte && (
+                      <g className="mapa-marca">
+                        <rect x={px + pw / 2 - 11} y={py + ph / 2 + 8} width={22} height={13} rx="2" />
+                        <text x={px + pw / 2} y={py + ph / 2 + 18} textAnchor="middle">{MARCA_SOPORTE[info.soporte]}</text>
+                      </g>
+                    )}
+                  </g>
                 </g>
               )
             })}
@@ -120,34 +178,45 @@ function Planta({ zonas, camas, caja, porCama, claseCama, zonaDe, alPasar, tip, 
   )
 }
 
-/* Luz de cada zona (1 = plena, 0 = atenuada). Al enfocar otra habitación, la
-   anterior se apaga mientras la nueva se enciende, con la misma curva suave
-   que la cámara. Devuelve `luzDe(zonaId)`. */
-function useLuces(focoId, zonas) {
-  const luces = useRef(new Map())
+/* Un valor de 0 a 1 por zona que se funde hacia `destinoDe(zonaId)` cada vez
+   que cambia `clave`, con la misma curva suave que la cámara: lo que se apaga
+   y lo que se enciende van a la vez, cada zona desde donde iba. Al montarse,
+   cada zona ya está en su destino. Devuelve `valorDe(zonaId)`. */
+function useFundido(clave, zonas, destinoDe) {
+  const valores = useRef(new Map())
   const ids = useRef([])
   ids.current = zonas.map((z) => z.id)
+  const destino = useRef(destinoDe)
+  destino.current = destinoDe
+  /* El destino anterior: de ahí parte una zona que aún no tenía valor. */
+  const anterior = useRef(destinoDe)
   const [, setCuadro] = useState(0)
   useEffect(() => {
-    const destinoDe = (id) => (!focoId || id === focoId ? 1 : 0)
-    const desde = new Map(luces.current)
-    const todas = new Set([...ids.current, ...desde.keys()])
+    const hacia = destino.current
+    const previo = anterior.current
+    anterior.current = hacia
+    const todas = new Set([...ids.current, ...valores.current.keys()])
+    const desde = new Map([...todas].map((z) => [z, valores.current.get(z) ?? previo(z)]))
+    if ([...todas].every((z) => desde.get(z) === hacia(z))) {
+      for (const z of todas) valores.current.set(z, hacia(z))
+      return undefined
+    }
     const inicio = performance.now()
     let id = 0
     const paso = (t) => {
       const k = suavizar(Math.min(1, (t - inicio) / FUNDIDO_MS))
       for (const z of todas) {
-        const a = desde.get(z) ?? 1
-        luces.current.set(z, a + (destinoDe(z) - a) * k)
+        const a = desde.get(z)
+        valores.current.set(z, a + (hacia(z) - a) * k)
       }
       setCuadro((n) => n + 1)
       if (k < 1) id = requestAnimationFrame(paso)
     }
     id = requestAnimationFrame(paso)
     return () => cancelAnimationFrame(id)
-  }, [focoId])
-  /* Toda zona arranca encendida y desde ahí se funde. */
-  return (zonaId) => luces.current.get(zonaId) ?? 1
+    // Solo se funde cuando cambia lo que se enfoca o se activa.
+  }, [clave])
+  return (zonaId) => valores.current.get(zonaId) ?? anterior.current(zonaId)
 }
 
 /* Paleta resuelta de los tokens del kit; se vuelve a resolver si cambia el tema. */
@@ -173,9 +242,9 @@ function usePaleta(ref) {
 /* En 3D se gira, se inclina y se acerca. Al pulsar una habitación (o una de
    sus camas) la cámara se acerca a ella y el resto se atenúa.
 
-   Se pinta como figura (ai-iso-skill) en un canvas: el marco lleva el número
-   de figura, el nombre, cómo se usa y una lectura en vivo. */
-function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSeleccionar, titulo }) {
+   Se pinta en un canvas, sin marco alrededor: un panel redondeado con la
+   lectura en vivo arriba a la izquierda y la botonera abajo a la derecha. */
+function Isometrica({ zonas, camas, delArea, caja, general,porCama, esActiva, area, tip, texto, seleccion, onSeleccionar, titulo }) {
   const ref = useRef(null)
   const lienzo = useRef(null)
   const sensibles = useRef([])
@@ -189,8 +258,15 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
   const [, setIconos] = useState(0)
   const camaElegida = seleccion ? camas.find((c) => c.id === seleccion) : null
   const focoId = camaElegida?.zonaId ?? salaId
-  const foco = zonas.find((z) => z.id === focoId && z.tipo === 'habitacion') ?? null
-  const luzDe = useLuces(foco?.id ?? null, zonas)
+  const foco = zonas.find((z) => z.id === focoId && z.tipo === 'habitacion' && esActiva(z)) ?? null
+  const luzDe = useFundido(foco?.id ?? null, zonas, (id) => (!foco || id === foco.id ? 1 : 0))
+  const activas = new Set(zonas.filter(esActiva).map((z) => z.id))
+  const activaDe = useFundido(area, zonas, (id) => (activas.has(id) ? 1 : 0))
+  /* Los códigos de cama solo en la habitación enfocada; entran y salen con
+     el mismo fundido. */
+  const rotuloDe = useFundido(foco?.id ?? null, zonas, (id) => (foco && id === foco.id ? 1 : 0))
+  /* Otra área: la habitación pulsada de la anterior deja de mandar. */
+  useEffect(() => setSalaId(null), [area])
   /* Se gira para mirar la habitación desde el pasillo y se centra entre la
      habitación y la cama elegida. */
   const objetivo = useMemo(() => {
@@ -217,7 +293,7 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
     setSalaId(null)
     onSeleccionar(null)
   }
-  const escena = useCamara3d({ tamano, caja, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
+  const escena = useCamara3d({ tamano, caja, general, margenes, foco, objetivo, onPulsar: pulsar, onSalirFoco: salir })
   const { vista, camara } = escena
 
   /* Con el plano fuera de la pantalla, la deriva en reposo se detiene. */
@@ -242,9 +318,10 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
     }
     const infoDe = (c) => {
       const info = porCama.get(c.id)
-      return { estado: info.estado, falla: info.falla, icono: iconoDe(info) }
+      if (!info) return null
+      return { estado: info.estado, ocupada: Boolean(info.ocupante), falla: info.falla, icono: iconoDe(info), marca: MARCA_SOPORTE[info.soporte] ?? null }
     }
-    const { figuras, sensibles: zonasSensibles } = construirEscena({ vista, zonas, camas, infoDe, foco, seleccion, encima, luzDe, pantalla: tamano })
+    const { figuras, sensibles: zonasSensibles } = construirEscena({ vista, zonas, camas, infoDe, foco, seleccion, encima, luzDe, activaDe, rotuloDe, pantalla: tamano })
     sensibles.current = zonasSensibles
     pintar(canvas.getContext('2d'), figuras, paleta, { ancho: tamano.ancho, alto: tamano.alto, dpr, alCargarIcono: () => setIconos((n) => n + 1) })
   })
@@ -268,11 +345,11 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
     setEncima(null)
   }
 
-  const estados = camas.map((c) => porCama.get(c.id).estado)
-  const ocupadas = estados.filter((e) => OCUPADA.includes(e)).length
-  const libres = estados.filter((e) => e === 'libre').length
+  const infos = delArea.map((c) => porCama.get(c.id))
+  const ocupadas = infos.filter((x) => x.ocupante).length
+  const libres = infos.filter((x) => x.libre).length
   const lectura = [
-    `${camas.length} camas`,
+    `${infos.length} camas`,
     `${ocupadas} ocupadas`,
     `${libres} libres`,
     foco ? `en ${foco.codigo}` : null,
@@ -282,15 +359,11 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
 
   return (
     <figure className="figura3d">
-      <figcaption className="figura3d__fila">
-        <span className="figura3d__fig">Fig. 1</span>
-        <span>{titulo}</span>
-      </figcaption>
       <div
         className="mapa-lienzo escena3d"
         ref={ref}
         {...escena.lienzo}
-        aria-label="Plano de camas en 3D. Elige una cama en el plano o en la lista; Esc vuelve a ver todo el piso."
+        aria-label="Plano de camas en 3D. Elige una cama en el plano o en la lista; Esc vuelve a ver toda el área."
       >
         <canvas
           ref={lienzo}
@@ -302,11 +375,8 @@ function Isometrica({ zonas, camas, caja, porCama, tip, texto, seleccion, onSele
           onPointerLeave={alSalir}
           {...escena.superficie}
         />
-        {tamano.ancho > 0 && <ControlesCamara {...escena.controles} />}
-      </div>
-      <div className="figura3d__fila">
-        <span>Pulsa una cama o una habitación · o elígela en la lista</span>
         <output className="figura3d__lectura" aria-live="polite">{lectura}</output>
+        {tamano.ancho > 0 && <ControlesCamara {...escena.controles} />}
       </div>
     </figure>
   )

@@ -9,6 +9,10 @@ export const ContextoApp = createContext(null)
 export const useApp = () => useContext(ContextoApp)
 
 export const nombreServicio = (id) => servicioPorId(id)?.nombre ?? id
+
+/* «Medicina B, Cuidados Críticos y Quemados». */
+const LISTA = new Intl.ListFormat('es', { type: 'conjunction' })
+export const listaServicios = (ids) => LISTA.format(ids.map(nombreServicio))
 export const nombreDepartamento = (id) => DEPARTAMENTOS.find((d) => d.id === id)?.nombre ?? id
 
 export const opcionesServicio = (ids) => ids.map((id) => ({ value: id, label: nombreServicio(id) }))

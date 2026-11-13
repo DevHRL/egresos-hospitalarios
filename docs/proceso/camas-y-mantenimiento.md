@@ -103,6 +103,12 @@ refleja lo que hay.
 
 ## Estados del puesto de cama
 
+**En el plano** (decisión 0008) cada cama se ve en uno de cuatro estados: **libre**,
+**ocupada** (con el paciente dibujado sobre ella), **falla reportada** y **en
+mantenimiento** (el puesto fuera de servicio). El O2 o la VM del paciente van como
+una marca junto al código, sin color propio. Bloquear camas ya no se ofrece en la
+pantalla. El diagrama sigue describiendo el modelo completo:
+
 ```mermaid
 stateDiagram-v2
   [*] --> Libre

@@ -20,7 +20,7 @@ export function CuentasBitacora() {
   const { estado } = useApp()
   return (
     <div className="panel"><Stack gap={4}>
-      <Card title="Las seis cuentas" subtitle="Todas ven el plano 3D. El rol decide qué puede hacer; los servicios, qué camas opera.">
+      <Card title="Las cuentas del prototipo" subtitle="Todas ven el plano 3D. El rol decide qué puede hacer; los servicios, qué camas opera.">
         <DataTable rowKey={(c) => c.id} rows={CUENTAS} columns={[
           { key: 'usuario', label: 'Usuario', width: 170 },
           { key: 'nombre', label: 'Área', width: 210 },

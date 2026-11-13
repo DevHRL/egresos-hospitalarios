@@ -20,7 +20,9 @@ def falla(mensaje: str):
 
 SISTEMA = {"id": "sistema", "rol": "sistema", "servicios": []}
 # Desde el 2026-11-11: el piso controla a su paciente; Estadística ya no
-# registra movimientos por él. La cuenta del departamento solo designa camas.
+# registra movimientos por él. La cuenta del departamento solo designa camas; en
+# un departamento sin esa cuenta (UCI, Quemados) designa la enfermería de la
+# unidad (2026-11-12, decisión 0008).
 ENFERMERIA = ("enfermeria",)
 CENSO = ("enfermeria", "jefatura")
 ESTADISTICA = ("tecnico", "jefatura")
@@ -30,7 +32,7 @@ ORIGENES = ("consulta_externa", "emergencia", "referencia", "otro_servicio")
 PERMISOS = {
     "orden/registrar": ("admision",),
     "orden/anular": ("admision",),
-    "ingreso/confirmar": ("departamento",),
+    "ingreso/confirmar": ("departamento", "enfermeria"),
     "ingreso/previo": ENFERMERIA,
     "ingreso/corregir": ESTADISTICA,
     "traslado/registrar": ENFERMERIA,
@@ -126,6 +128,26 @@ class Ctx:
     def asegurar_servicio(self, servicio: str) -> None:
         if self.cuenta["rol"] in ("enfermeria", "departamento") and servicio not in self.cuenta["servicios"]:
             falla("Esta cuenta solo opera las camas de su servicio.")
+
+    def asegurar_designa(self, departamento: str) -> None:
+        """La cuenta del departamento designa en el suyo; la enfermería de una unidad,
+        solo si su departamento no tiene esa cuenta. Igual que `designa` en
+        frontend/src/app/datos/cuentas.js."""
+        if self.cuenta["rol"] == "sistema":
+            return
+        propios = self.valor(
+            "SELECT EXISTS (SELECT 1 FROM servicio WHERE departamento_id = :d AND id = ANY(:s))",
+            d=departamento, s=list(self.cuenta["servicios"]),
+        )
+        if self.cuenta["rol"] == "enfermeria" and propios:
+            propios = not self.valor(
+                """SELECT EXISTS (SELECT 1 FROM cuenta c JOIN cuenta_servicio cs ON cs.cuenta_id = c.id
+                     JOIN servicio s ON s.id = cs.servicio_id
+                     WHERE c.activo AND c.rol = 'departamento' AND s.departamento_id = :d)""",
+                d=departamento,
+            )
+        if not propios:
+            falla("En ese departamento la cama la designa la cuenta del departamento.")
 
     def asegurar_fecha(self, f) -> None:
         if not es_fecha_hora(f):
@@ -340,14 +362,15 @@ def orden_anular(c: Ctx, d: dict) -> str:
 
 
 def ingreso_confirmar(c: Ctx, d: dict) -> str:
-    """El departamento designa habitación y cama. La cama define el área (Medicina B o
-    Intermedios) y desde ese momento el piso controla al paciente."""
+    """Quien designa (el departamento o, si no tiene cuenta, la unidad) elige habitación
+    y cama. La cama define el área y desde ese momento el piso controla al paciente."""
     o = c.uno(
         "SELECT *, texto_local(fecha_hora) AS fecha_texto FROM orden_hospitalizacion WHERE id = :o",
         o=id_de(d.get("ordenId")),
     )
     if not o or o["estado"] != "pendiente":
         falla("La orden ya no está pendiente.")
+    c.asegurar_designa(o["departamento_id"])
     cama = c.cama(d.get("camaId"))
     if not cama:
         falla("Elige la habitación y la cama.")

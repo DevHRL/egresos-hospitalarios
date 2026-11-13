@@ -120,26 +120,40 @@ export function trasladoPendienteDe(e, hId) {
 
 export const ordenCamaActiva = (e, camaId) => e.ordenesCama.find((o) => o.camaId === camaId && o.estado !== 'cerrada') ?? null
 
-/* El estado que se pinta en el mapa. La falla reportada no quita la cama de
-   servicio: solo lo hace el retiro sin reemplazo. */
+/* El estado que se pinta en el plano: uno de cuatro (2026-11-12). La falla
+   reportada se ve como estado propio, pero no quita la cama de servicio: libre
+   se puede seguir designando y ocupada conserva a su paciente. Solo el retiro
+   sin reemplazo la deja en mantenimiento. El O2 o la VM que recibe el paciente
+   no es un estado: va aparte, en `soporte`, como una marca sin color propio.
+   `libre` dice si la cama admite un paciente ahora mismo. */
 export function estadoCama(e, cama, ocupacion = ocupantes(e, hasta(e.ahora))) {
   const ocupante = ocupacion.get(cama.id)?.[0] ?? null
   const orden = ordenCamaActiva(e, cama.id)
-  const base = { cama, ocupante, orden, falla: orden?.estado === 'pendiente_retiro', trasladoPendiente: ocupante ? trasladoPendienteDe(e, ocupante.hospitalizacion.id) : null }
-  if (cama.fueraDeServicio) return { ...base, estado: 'fuera' }
-  if (ocupante) return { ...base, estado: ocupante.soporte === 'vm' ? 'ocupada_vm' : ocupante.soporte === 'o2' ? 'ocupada_o2' : 'ocupada' }
-  if (cama.bloqueo) return { ...base, estado: 'bloqueada' }
+  const falla = orden?.estado === 'pendiente_retiro'
+  const base = {
+    cama,
+    ocupante,
+    orden,
+    falla,
+    soporte: ocupante && ocupante.soporte !== 'ninguno' ? ocupante.soporte : null,
+    libre: !cama.fueraDeServicio && !ocupante && !cama.bloqueo,
+    trasladoPendiente: ocupante ? trasladoPendienteDe(e, ocupante.hospitalizacion.id) : null,
+  }
+  if (cama.fueraDeServicio) return { ...base, estado: 'mantenimiento' }
+  if (falla) return { ...base, estado: 'falla' }
+  if (ocupante) return { ...base, estado: 'ocupada' }
   return { ...base, estado: 'libre' }
 }
 
 export const ESTADOS_CAMA_MAPA = {
   libre: { label: 'Libre', icono: 'sh-check', tono: 'ok' },
   ocupada: { label: 'Ocupada', icono: 'sh-profile', tono: 'info' },
-  ocupada_o2: { label: 'Ocupada con O2', icono: 'sh-drop', tono: 'info' },
-  ocupada_vm: { label: 'Ocupada con VM', icono: 'sh-drop', tono: 'warn' },
-  bloqueada: { label: 'Bloqueada', icono: 'sh-shield', tono: 'none' },
-  fuera: { label: 'Fuera de servicio', icono: 'sh-wrench', tono: 'crit' },
+  falla: { label: 'Falla reportada', icono: 'sh-warn', tono: 'warn' },
+  mantenimiento: { label: 'En mantenimiento', icono: 'sh-wrench', tono: 'crit' },
 }
+
+/* La marca que acompaña a la cama cuyo paciente recibe O2 o VM. */
+export const MARCA_SOPORTE = { o2: 'O2', vm: 'VM' }
 
 export function estadosDeCamas(e, servicios) {
   const ocupacion = ocupantes(e, hasta(e.ahora))
@@ -148,10 +162,21 @@ export function estadosDeCamas(e, servicios) {
 
 export function resumenCamas(e, servicios) {
   const lista = estadosDeCamas(e, servicios)
-  const cuenta = (...estados) => lista.filter((x) => estados.includes(x.estado)).length
-  const operativas = lista.length - cuenta('fuera') - cuenta('bloqueada')
-  const ocupadas = cuenta('ocupada', 'ocupada_o2', 'ocupada_vm')
-  return { total: lista.length, operativas, ocupadas, disponibles: operativas - ocupadas, conO2: cuenta('ocupada_o2'), conVM: cuenta('ocupada_vm'), fuera: cuenta('fuera'), bloqueadas: cuenta('bloqueada') }
+  const contar = (f) => lista.filter(f).length
+  const fuera = contar((x) => x.estado === 'mantenimiento')
+  const operativas = lista.length - fuera - contar((x) => x.cama.bloqueo && !x.cama.fueraDeServicio)
+  const ocupadas = contar((x) => x.ocupante)
+  return {
+    total: lista.length,
+    operativas,
+    ocupadas,
+    disponibles: operativas - ocupadas,
+    conO2: contar((x) => x.soporte === 'o2'),
+    conVM: contar((x) => x.soporte === 'vm'),
+    conFalla: contar((x) => x.falla),
+    fuera,
+    bloqueadas: contar((x) => x.cama.bloqueo),
+  }
 }
 
 /* ── Censo diario ──────────────────────────────────────────────────────── */
@@ -277,7 +302,7 @@ export function filasCenso(e, servicioId, dia, nombre = (id) => id) {
   for (const cama of camas) {
     const lista = (ocupacion.get(cama.id) ?? []).filter((o) => o.servicioId === servicioId)
     if (lista.length === 0) {
-      filas.push({ clave: cama.id, camaId: cama.id, camaCodigo: cama.codigo, vacia: true, estadoCama: camaFueraAl(e, cama, corte) ? 'fuera' : camaBloqueadaAl(e, cama, corte) ? 'bloqueada' : 'libre' })
+      filas.push({ clave: cama.id, camaId: cama.id, camaCodigo: cama.codigo, vacia: true, estadoCama: camaFueraAl(e, cama, corte) ? 'mantenimiento' : camaBloqueadaAl(e, cama, corte) ? 'bloqueada' : 'libre' })
     }
     for (const o of lista) {
       vistos.add(o.hospitalizacion.id)
@@ -436,7 +461,7 @@ export function inconsistencias(e, nombre = (id) => id) {
       if (r?.estado === 'cerrado' && r.observacion) agregar(`b-${servicioId}-${d}`, 'Censo con observación', `${nombre(servicioId)}, ${d}: ${r.observacion}`)
     }
     const inv = cuadreInventario(e, servicioId)
-    if (!inv.cuadra) agregar(`i-${servicioId}`, 'Inventario sin cuadrar', `${nombre(servicioId)}: ${inv.fuera} fuera de servicio y ${inv.ordenes} órdenes abiertas.`, 'crit')
+    if (!inv.cuadra) agregar(`i-${servicioId}`, 'Inventario sin cuadrar', `${nombre(servicioId)}: ${inv.fuera} en mantenimiento y ${inv.ordenes} órdenes abiertas.`, 'crit')
   }
   for (const o of e.ordenesCama) {
     if (o.estado === 'por_recibir') agregar(`m-${o.id}`, 'Cama sin recibir', `${camaPorId(e, o.camaId).codigo}: mantenimiento la entregó y enfermería no confirmó.`)
