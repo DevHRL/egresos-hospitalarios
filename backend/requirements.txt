@@ -1,6 +1,11 @@
 alembic>=1.13,<2
+# Contraseñas con Argon2id y sesiones con JWT, como el sistema de Estadística
+# (servidor/api/app/seguridad.py de Estadistica_hrl): una sola forma de autenticar
+# en los dos sistemas, para poder unificar el ingreso después.
+argon2-cffi>=23.1,<26
 fastapi>=0.115,<1
 psycopg[binary]>=3.2,<4
+pyjwt>=2.8,<3
 pytest>=8,<10
 sqlalchemy>=2.0,<3
 uvicorn>=0.30,<1

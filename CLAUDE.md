@@ -54,9 +54,10 @@ dibuja con SVG y React, sin librerías de dibujo.
 | Una regla o cálculo del dominio (plano, censo, indicadores) | `dominio/` |
 | Datos de referencia (catálogo de servicios) o persistencia | `datos/` |
 | Una pantalla y sus componentes | `paneles/<módulo>/` |
+| Qué pantalla abre cada módulo del menú | `paneles/indice.js` |
 
 `dominio/` no importa de `datos/` ni de React: son funciones puras y se
-prueban con `npm test` (`node --test`, carpeta `pruebas/`). Todo cambio del
+prueban con `node --test` (`pruebas/*.test.mjs`). Todo cambio del
 plano pasa por `aplicar(plano, accion)`, para que deshacer y guardar vean un
 único punto de cambio.
 
@@ -76,7 +77,24 @@ pantalla nueva.
 - El archivo del plano lleva `version`; si cambia su forma, se sube la versión
   y se migra al abrir.
 
+### Igual que Estadística
+
+Este sistema va a vivir junto al de Estadística ([decisión 0011](docs/decisiones/0011-integracion-con-estadistica.md)).
+Lo que ya se alineó no se vuelve a separar sin decirlo:
+
+- **Python 3.13**, la versión de la API de Estadística.
+- **Ingreso**: Argon2id, JWT HS256 (`JWT_SECRETO`), `POST /api/auth/login`,
+  `GET /api/auth/yo`, `POST /api/auth/cambiar-clave`, cambio obligatorio de la clave
+  provisional, freno tras cinco fallos y la misma política de claves
+  (`backend/app/claves.py`). El token lleva `aud: egresos-hospitalarios` para que no
+  abra Estadística ni al revés hasta que se unifique el ingreso.
+- **Prueba de humo**: `npm run humo`, con la misma forma que la de Estadística. Una
+  pantalla nueva entra en `paneles/indice.js` y la prueba la renderiza con cada
+  cuenta; una cuenta nueva va en la tabla del README (el ingreso no las lista).
+- **Lint sin avisos**: `npm run lint` debe salir limpio, no solo sin errores.
+
 ### Antes de dar algo por terminado
 
-`npm test`, `npm run build`, `npm run lint` y `npx hrl-core-ui doctor`, todo
-desde `frontend/`.
+Desde `frontend/`: `npm run humo` (0 fallos; corre también las pruebas del dominio),
+`npm run build`, `npm run lint` (sin avisos) y `npx hrl-core-ui doctor`.
+Desde `backend/`: `.venv/Scripts/python -m pytest pruebas` si tocaste la API o la base.

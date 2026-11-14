@@ -3,15 +3,18 @@
 import json
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
-from app import acciones, estado
+from app import acciones, autenticacion, estado
+from app.claves import LARGO_MAXIMO
 from app.config import es_demo, url_app, url_owner
-from app.sesion import clave_correcta, crear_token, leer_token
+from app.seguridad import TokenInvalido, leer_token, secreto
 from app.tiempo import dia_de, dias_entre, sumar_dias
 
 app = FastAPI(title="Egresos Hospitalarios")
+secreto()  # Sin un JWT_SECRETO válido la API no arranca, como la de Estadística.
 motor = create_engine(url_app(), pool_pre_ping=True, connect_args={"options": "-c timezone=UTC"})
 
 MENSAJES = {
@@ -23,7 +26,7 @@ MENSAJES = {
 }
 
 
-def _rechazo(mensaje: str, codigo: int = 422) -> HTTPException:
+def _rechazo(mensaje: str | list[str], codigo: int = 422) -> HTTPException:
     return HTTPException(status_code=codigo, detail=mensaje)
 
 
@@ -35,12 +38,26 @@ def _cuenta_de(conexion, cuenta_id: str):
     return {**fila, "servicios": list(servicios)}
 
 
-def cuenta_actual(authorization: str | None = Header(default=None)) -> dict:
-    cuenta_id = leer_token((authorization or "").removeprefix("Bearer ").strip())
-    if not cuenta_id:
-        raise _rechazo("La sesión terminó. Vuelve a entrar.", 401)
+def _ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+def sesion_para_cambiar_clave(authorization: str | None = Header(default=None)) -> dict:
+    """La sesión del token, aunque la cuenta deba cambiar su contraseña. Solo la
+    usan `/auth/yo` y `/auth/cambiar-clave`."""
+    try:
+        return leer_token((authorization or "").removeprefix("Bearer ").strip())
+    except TokenInvalido as e:
+        raise _rechazo("La sesión terminó. Vuelve a entrar." if e.vencido else "La sesión no es válida. Vuelve a entrar.", 401) from e
+
+
+def cuenta_actual(sesion: dict = Depends(sesion_para_cambiar_clave)) -> dict:
+    """La cuenta de una sesión que puede operar. Se lee de la base en cada pedido:
+    una cuenta desactivada deja de operar sin esperar a que venza su token."""
+    if sesion["cc"]:
+        raise _rechazo("Debes cambiar tu contraseña antes de continuar.", 403)
     with motor.connect() as conexion:
-        cuenta = _cuenta_de(conexion, cuenta_id)
+        cuenta = _cuenta_de(conexion, sesion["sub"])
     if not cuenta:
         raise _rechazo("La cuenta ya no está activa.", 401)
     return cuenta
@@ -65,24 +82,55 @@ def _escribir(funcion):
         raise
 
 
-@app.post("/api/sesion")
-def iniciar_sesion(datos: dict):
-    usuario = str(datos.get("usuario") or "").strip()
-    with motor.connect() as conexion:
-        fila = conexion.execute(text("SELECT id, clave_hash FROM cuenta WHERE usuario = :u AND activo"), {"u": usuario}).mappings().first()
-    if not fila or not clave_correcta(str(datos.get("clave") or ""), fila["clave_hash"]):
-        raise _rechazo("Usuario o contraseña incorrectos.", 401)
-    return {"token": crear_token(fila["id"]), "cuentaId": fila["id"]}
+class Credenciales(BaseModel):
+    usuario: str = Field(min_length=1, max_length=60)
+    # Tope de largo: Argon2 es caro a propósito.
+    clave: str = Field(min_length=1, max_length=LARGO_MAXIMO)
 
 
-@app.post("/api/sesion/cambiar")
-def cambiar_cuenta(datos: dict, _cuenta: dict = Depends(cuenta_actual)):
+class CambioDeClave(BaseModel):
+    clave_actual: str = Field(min_length=1, max_length=LARGO_MAXIMO)
+    clave_nueva: str = Field(min_length=1, max_length=LARGO_MAXIMO)
+
+
+def _con_registro(funcion):
+    """Confirma lo que la función anotó (el intento fallido) aunque termine en rechazo."""
+    with motor.begin() as conexion:
+        try:
+            return funcion(conexion)
+        except autenticacion.Rechazo as r:
+            rechazo = r
+    raise _rechazo(rechazo.detalle, rechazo.codigo)
+
+
+@app.post("/api/auth/login")
+def iniciar_sesion(credenciales: Credenciales, request: Request):
+    return _con_registro(lambda c: autenticacion.ingresar(c, credenciales.usuario, credenciales.clave, _ip(request)))
+
+
+@app.get("/api/auth/yo")
+def mi_sesion(sesion: dict = Depends(sesion_para_cambiar_clave)):
+    return {"usuario": sesion["usr"], "id": sesion["sub"], "nombre": sesion["nom"], "rol": sesion["rol"], "debe_cambiar_clave": sesion["cc"], "expira_en": sesion["exp"]}
+
+
+@app.post("/api/auth/cambiar-clave")
+def cambiar_clave(cambio: CambioDeClave, request: Request, sesion: dict = Depends(sesion_para_cambiar_clave)):
+    return _con_registro(lambda c: autenticacion.cambiar_clave(c, sesion["sub"], cambio.clave_actual, cambio.clave_nueva, _ip(request)))
+
+
+@app.post("/api/demo/entrar-como")
+def entrar_como(datos: dict, _cuenta: dict = Depends(cuenta_actual)):
+    """Solo en la demostración: pasar a otra cuenta sin su clave, para seguir un
+    paciente desde Admisión hasta Estadística."""
     _solo_demo()
     with motor.connect() as conexion:
-        destino = _cuenta_de(conexion, str(datos.get("cuentaId")))
+        destino = conexion.execute(
+            text("SELECT id, usuario, nombre, rol FROM cuenta WHERE id = :c AND activo AND rol <> 'sistema'"),
+            {"c": str(datos.get("cuentaId"))},
+        ).mappings().first()
     if not destino:
         raise _rechazo("Esa cuenta no existe.")
-    return {"token": crear_token(destino["id"]), "cuentaId": destino["id"]}
+    return autenticacion.respuesta(destino, debe_cambiar_clave=False)
 
 
 @app.get("/api/estado")
@@ -94,7 +142,7 @@ def leer_estado(cuenta: dict = Depends(cuenta_actual)):
 @app.post("/api/acciones")
 def ejecutar_accion(accion: dict, request: Request, cuenta: dict = Depends(cuenta_actual)):
     def hacer(conexion):
-        acciones.aplicar(conexion, cuenta, accion, acciones.ahora_de(conexion, es_demo()), request.client.host if request.client else None)
+        acciones.aplicar(conexion, cuenta, accion, acciones.ahora_de(conexion, es_demo()), _ip(request))
     _escribir(hacer)
     return {"ok": True}
 

@@ -394,7 +394,6 @@ export function aplicar(estado, accion) {
       return incorporado
         ? aplicar(sinAlta, { tipo: 'traslado/registrar', cuenta, hospitalizacionId: h.id, servicioDestino: d.servicioDestino })
         : aplicar(sinAlta, { tipo: 'egreso/registrar', cuenta, hospitalizacionId: h.id, tipoEgreso: TRASLADO_NO_INCORPORADO, destino: d.destinoNombre, fechaHora: h.egreso.fechaHora })
-      break
     }
 
     case 'movimiento/anular': {

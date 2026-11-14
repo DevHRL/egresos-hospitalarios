@@ -80,7 +80,8 @@ docker-compose.yml        # solo el servicio db, PostgreSQL 16
 .env.example              # sin contraseñas reales
 ```
 
-- Dependencias permitidas: Python 3.12, SQLAlchemy, Alembic, psycopg y pytest.
+- Dependencias permitidas: Python 3.13, SQLAlchemy, Alembic, psycopg y pytest; desde el
+  2026-11-14 también argon2-cffi y pyjwt, las del ingreso de Estadística (decisión 0011).
   Cualquier otra se pide antes, como indica `CLAUDE.md`.
 - Una base vacía queda completa con `alembic upgrade head`, y
   `alembic downgrade base` la deja vacía.
@@ -785,3 +786,21 @@ mismo día se suma `medicina-a` a la captura digital, con su plano y la cuenta
 `medicina.a`. Sin migración. Cifras: 95 zonas, 67 camas, 67 activos y 10 cuentas;
 `v_tablero` tiene 5 filas. Demostración: 27 pacientes, 27 órdenes (24 ingresadas),
 24 hospitalizaciones (21 abiertas), 6 movimientos de soporte y 15 censos cerrados.
+
+## 17. Cambios del 2026-11-14
+
+**Ingreso como el de Estadística (decisión [0011](../decisiones/0011-integracion-con-estadistica.md), migración `0004`).**
+
+- `cuenta.debe_cambiar_clave` boolean `NOT NULL`, default `true`. Las cuentas que ya
+  existían quedaron en `false`. `cargar_maestros` crea las nuevas con `true` solo si
+  `APP_ENV=produccion`.
+- `intento_acceso`: `id` · `usuario` text · `ip` inet **null** · `exitoso` boolean ·
+  `fecha` timestamptz default `clock_timestamp()` (la hora real del intento, no la del
+  inicio de la transacción). Índice `(usuario, fecha DESC)`. `egresos_app` solo lee e
+  inserta. Cinco fallos seguidos en 15 minutos, contados desde el último ingreso
+  correcto, frenan esa cuenta.
+- `auditar()` deja fuera `clave_hash`, y se borró de la auditoría que ya existía: antes,
+  cada cambio de la fila de una cuenta copiaba el hash de su clave a `auditoria`.
+- Las claves pasan de scrypt a Argon2id. No hace falta migrarlas: una clave scrypt se
+  acepta y se reemplaza en el siguiente ingreso correcto.
+- Python 3.13; dependencias nuevas: `argon2-cffi` y `pyjwt`.

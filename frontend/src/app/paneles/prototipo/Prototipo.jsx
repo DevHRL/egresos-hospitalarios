@@ -1,9 +1,12 @@
-import { Badge, Card, DataTable, LoginScreen, PaginatedTable, Stack } from '@hrl/core-ui'
+import { Badge, Button, Card, ChangePasswordScreen, DataTable, LoginScreen, PaginatedTable, Stack } from '@hrl/core-ui'
 import { CUENTAS, MODULOS, cuentaPorId } from '../../datos/cuentas.js'
-import { iniciarSesion } from '../../datos/tienda.js'
+import { cambiarClave, iniciarSesion } from '../../datos/tienda.js'
 import { verFechaHora } from '../../dominio/tiempo.js'
 import { nombreServicio, useApp } from '../comun.jsx'
 
+/* El ingreso no lista las cuentas (como en Estadística): en un servidor
+   compartido, decir qué usuarios existen es la mitad del trabajo de quien prueba
+   claves. Las cuentas de la demostración están en el README. */
 export function Acceso({ onEntrar }) {
   return (
     <LoginScreen
@@ -11,7 +14,26 @@ export function Acceso({ onEntrar }) {
       onSubmit={async ({ username, password }) => {
         onEntrar(await iniciarSesion(username.trim(), password))
       }}
-      footer={<span>Datos ficticios. Cuentas: {CUENTAS.map((c) => c.usuario).join(', ')}.</span>}
+    />
+  )
+}
+
+/* Mínimo de la política de claves del servidor (app/claves.py), la misma de Estadística. */
+const LARGO_MINIMO_CLAVE = 10
+
+/* `obligatorio`: la clave es provisional y no se puede operar hasta cambiarla.
+   Si no, la cuenta eligió cambiarla desde su menú y puede volver. */
+export function CambioClave({ obligatorio, onListo, onVolver }) {
+  return (
+    <ChangePasswordScreen
+      systemName="Egresos Hospitalarios"
+      minLength={LARGO_MINIMO_CLAVE}
+      labels={obligatorio ? undefined : { changeTitle: 'Cambia tu contraseña', changeIntro: 'La nueva reemplaza a la actual desde el próximo ingreso.', save: 'Guardar' }}
+      onSubmit={async ({ current, next }) => {
+        await cambiarClave(current, next)
+        onListo()
+      }}
+      footer={<Button tone="ghost" onClick={onVolver}>{obligatorio ? 'Salir' : 'Volver sin cambiarla'}</Button>}
     />
   )
 }

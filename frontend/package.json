@@ -9,7 +9,8 @@
     "lint": "oxlint src/",
     "preview": "vite preview",
     "kit:doctor": "hrl-core-ui doctor",
-    "test": "node --test \"pruebas/**/*.test.mjs\""
+    "test": "node --test \"pruebas/**/*.test.mjs\"",
+    "humo": "node pruebas/humo.mjs"
   },
   "dependencies": {
     "@hrl/core-ui": "github:DevHRL/hrl-core-ui#v1.11.0-redesign.3",

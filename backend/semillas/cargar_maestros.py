@@ -6,8 +6,8 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
-from app.config import url_owner, variable
-from app.sesion import hash_clave
+from app.config import es_demo, url_owner, variable
+from app.seguridad import hashear_clave
 
 # UCI salió del prototipo el 2026-11-11; el 2026-11-12 vuelve con su mapeo físico, junto
 # con Quemados (mismo pasillo del piso 2). Decisión 0008. Medicina A se suma con su
@@ -116,13 +116,17 @@ def _cuentas(conexion, datos: dict) -> None:
         """INSERT INTO cuenta (id, usuario, nombre, rol) VALUES ('sistema', 'sistema', 'Sistema', 'sistema')
            ON CONFLICT (id) DO NOTHING""",
     )
-    clave = hash_clave(variable("CLAVE_INICIAL_CUENTAS"))
+    clave = hashear_clave(variable("CLAVE_INICIAL_CUENTAS"))
+    # Fuera de la demostración, la clave inicial es provisional: cada cuenta la
+    # cambia al entrar por primera vez. Una cuenta que ya existe conserva su clave.
+    provisional = not es_demo()
     for c in datos["cuentas"]:
         _ejec(
             conexion,
-            """INSERT INTO cuenta (id, usuario, nombre, rol, clave_hash) VALUES (:id, :usuario, :nombre, :rol, :clave)
+            """INSERT INTO cuenta (id, usuario, nombre, rol, clave_hash, debe_cambiar_clave)
+               VALUES (:id, :usuario, :nombre, :rol, :clave, :provisional)
                ON CONFLICT (id) DO UPDATE SET usuario = EXCLUDED.usuario, nombre = EXCLUDED.nombre, rol = EXCLUDED.rol""",
-            id=c["id"], usuario=c["usuario"], nombre=c["nombre"], rol=c["rol"], clave=clave,
+            id=c["id"], usuario=c["usuario"], nombre=c["nombre"], rol=c["rol"], clave=clave, provisional=provisional,
         )
         _ejec(conexion, "DELETE FROM cuenta_servicio WHERE cuenta_id = :id", id=c["id"])
         for servicio in c["servicios"]:

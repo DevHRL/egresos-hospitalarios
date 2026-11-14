@@ -38,7 +38,7 @@ flowchart LR
 |---|---|---|
 | Frontend | Pantallas de los 12 módulos; editor y vista del plano en SVG; flujo de teclado en la bandeja | React 19 + Vite 8 (JavaScript), `@hrl/core-ui` |
 | Actualización de pantallas | Refresca el estado de camas | Recarga periódica en el piloto; Server-Sent Events con `LISTEN/NOTIFY` de PostgreSQL más adelante |
-| API | Reglas de negocio, validaciones, cuadre de censo, cálculo de indicadores, permisos, auditoría | Python 3.12, FastAPI, SQLAlchemy, Alembic |
+| API | Reglas de negocio, validaciones, cuadre de censo, cálculo de indicadores, permisos, auditoría | Python 3.13, FastAPI, SQLAlchemy, Alembic; ingreso con Argon2id y JWT, como Estadística |
 | Worker | Réplica de Aletheia, recordatorios de censo sin cerrar, precálculo de reportes, alertas de calidad | Python (mismo código que la API), APScheduler o Celery |
 | Base de datos | Única fuente de movimientos, censos, egresos y maestros | PostgreSQL 16 |
 | Proxy | HTTPS, compresión, sirve el frontend | Nginx |

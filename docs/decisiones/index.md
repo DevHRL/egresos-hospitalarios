@@ -19,3 +19,4 @@ complétala y añádela a `nav` en `mkdocs.yml`.
 | [0008](0008-uci-quemados-y-estados-de-cama.md) | UCI y Quemados en el piso 2, y cuatro estados de cama | Adoptada (designación cambiada por 0010) |
 | [0009](0009-medicina-a-en-el-piso-2.md) | Medicina A en el piso 2 | Adoptada |
 | [0010](0010-el-area-designa-y-registra-el-alta.md) | El área designa la cama y registra el alta completa | Adoptada |
+| [0011](0011-integracion-con-estadistica.md) | Integración con el sistema de Estadística | Propuesta (fase 0 hecha) |

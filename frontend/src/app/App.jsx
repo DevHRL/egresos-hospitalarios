@@ -2,36 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, AppShell, Toast } from '@hrl/core-ui'
 import { CLAVE_PREFERENCIAS, CLAVE_TEMA } from './tema.js'
 import { MODULOS, cuentaPorId, CUENTAS } from './datos/cuentas.js'
-import { cambiarCuenta, cerrarCensosPendientes, cerrarSesion, conectar, despachar, haySesion, moverReloj, reiniciarDemo, useEstado, useSinConexion } from './datos/tienda.js'
+import { cambiarCuenta, cerrarCensosPendientes, cerrarSesion, conectar, debeCambiarClave, despachar, haySesion, moverReloj, reiniciarDemo, useEstado, useSinConexion } from './datos/tienda.js'
 import { ordenesPendientes } from './datos/admision.js'
 import { mesDe, proximaHora, sumarDias, sumarHoras, verFechaHora } from './dominio/tiempo.js'
 import { ContextoApp } from './paneles/comun.jsx'
-import { Acceso, CuentasBitacora } from './paneles/prototipo/Prototipo.jsx'
-import { Ordenes } from './paneles/admision/Ordenes.jsx'
-import { MapaCamas } from './paneles/camas/MapaCamas.jsx'
-import { MovimientosDia } from './paneles/camas/MovimientosDia.jsx'
-import { CensoDiario } from './paneles/censo/CensoDiario.jsx'
-import { Recepcion } from './paneles/estadistica/Recepcion.jsx'
-import { Validacion } from './paneles/estadistica/Validacion.jsx'
-import { Consolidado, Indicadores, Renoxi, Tablero } from './paneles/reportes/Reportes.jsx'
-import { OrdenesCama } from './paneles/mantenimiento/OrdenesCama.jsx'
-import { BuscarPaciente } from './paneles/pacientes/BuscarPaciente.jsx'
-
-const PANELES = {
-  ordenes: Ordenes,
-  mapa: MapaCamas,
-  movimientos: MovimientosDia,
-  censo: CensoDiario,
-  recepcion: Recepcion,
-  validacion: Validacion,
-  consolidado: Consolidado,
-  renoxi: Renoxi,
-  indicadores: Indicadores,
-  mantenimiento: OrdenesCama,
-  tablero: Tablero,
-  cuentas: CuentasBitacora,
-  pacientes: BuscarPaciente,
-}
+import { Acceso, CambioClave } from './paneles/prototipo/Prototipo.jsx'
+import { PANELES } from './paneles/indice.js'
 
 /* Lo que espera a cada cuenta, para el contador del menú. */
 function pendientes(estado, cuenta) {
@@ -74,26 +50,32 @@ export default function App() {
   const [cuenta, setCuenta] = useState(leerSesion)
   const [modulo, setModulo] = useState(null)
   const [toast, setToast] = useState(null)
+  /* 'obligatorio' si la clave es provisional (el servidor no deja operar sin
+     cambiarla); 'voluntario' si la cuenta lo pidió desde su menú. */
+  const [cambioClave, setCambioClave] = useState(() => (debeCambiarClave() ? 'obligatorio' : null))
   const cuentaId = cuenta?.id ?? null
+  const operando = Boolean(cuentaId) && cambioClave !== 'obligatorio'
 
   const salir = () => {
     cerrarSesion()
     guardarSesion(null)
     setCuenta(null)
+    setCambioClave(null)
   }
 
   useEffect(() => {
-    if (!cuentaId) return undefined
+    if (!operando) return undefined
     return conectar(salir)
-  }, [cuentaId])
+  }, [cuentaId, operando])
 
   /* Al entrar, cada cuenta abre en su primer módulo: el plano 3D. */
-  const entrar = async (id) => {
-    if (cuenta && cuenta.id !== id) await cambiarCuenta(id)
+  const entrar = ({ cuentaId: id, debeCambiarClave: debeCambiar = false }) => {
     guardarSesion(id)
     setCuenta(cuentaPorId(id))
     setModulo(null)
+    setCambioClave(debeCambiar ? 'obligatorio' : null)
   }
+  const entrarComo = async (id) => entrar({ cuentaId: await cambiarCuenta(id) })
 
   const contexto = useMemo(() => ({
     estado,
@@ -107,6 +89,18 @@ export default function App() {
   }), [estado, cuenta])
 
   if (!cuenta) return <Acceso onEntrar={entrar} />
+  if (cambioClave) {
+    return (
+      <CambioClave
+        obligatorio={cambioClave === 'obligatorio'}
+        onListo={() => {
+          setCambioClave(null)
+          setToast('Contraseña cambiada.')
+        }}
+        onVolver={cambioClave === 'obligatorio' ? salir : () => setCambioClave(null)}
+      />
+    )
+  }
   if (!estado) {
     return (
       <div className="panel">
@@ -135,8 +129,11 @@ export default function App() {
     { id: 'censos', label: 'Cerrar censos pendientes', icon: 'sh-table', onSelect: async () => setToast(`Censos cerrados: ${await cerrarCensosPendientes()}.`) },
   ]
 
+  /* Entrar como otra cuenta sin su clave solo existe en la demostración: en
+     producción el servidor lo rechaza y el menú no lo ofrece. */
   const accountItems = [
-    ...CUENTAS.filter((c) => c.id !== cuenta.id).map((c) => ({ id: c.id, label: `Entrar como ${c.nombre}`, icon: 'sh-profile', onSelect: () => entrar(c.id) })),
+    { id: 'clave', label: 'Cambiar contraseña', icon: 'sh-shield', onSelect: () => setCambioClave('voluntario') },
+    ...(estado.modoDemo ? [{ id: 'sep-cuentas', separator: true }, ...CUENTAS.filter((c) => c.id !== cuenta.id).map((c) => ({ id: c.id, label: `Entrar como ${c.nombre}`, icon: 'sh-profile', onSelect: () => entrarComo(c.id) }))] : []),
     ...(estado.modoDemo ? relojDemo : []),
     { id: 'sep', separator: true },
     ...(estado.modoDemo ? [{ id: 'reiniciar', label: 'Reiniciar demostración', icon: 'sh-swap', tone: 'danger', onSelect: async () => { await reiniciarDemo(); setToast('Demostración reiniciada.') } }] : []),
