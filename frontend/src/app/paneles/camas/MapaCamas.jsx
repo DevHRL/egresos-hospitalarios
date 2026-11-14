@@ -19,15 +19,15 @@ const dias = (n) => `${n} ${n === 1 ? 'día' : 'días'}`
 
 function textoHover(estado, info) {
   const meta = ESTADOS_CAMA_MAPA[info.estado]
-  const titulo = `Cama ${info.cama.codigo} · ${meta.label}`
+  const titulo = `Cama ${info.cama.codigo}, ${meta.label}`
   if (info.ocupante) {
     const h = info.ocupante.hospitalizacion
     const p = pacientePorId(estado, h.pacienteId)
-    return { titulo, cuerpo: `${p.nombres} · HC ${p.hc} · ${edad(p.nacimiento, estado.ahora)} años · ${dias(estancia(h.fechaIngreso, estado.ahora))}${info.soporte ? ` · ${MARCA_SOPORTE[info.soporte]}` : ''}` }
+    return { titulo, cuerpo: `${p.nombres}, HC ${p.hc}, ${edad(p.nacimiento, estado.ahora)} años, ${dias(estancia(h.fechaIngreso, estado.ahora))}${info.soporte ? `, ${MARCA_SOPORTE[info.soporte]}` : ''}` }
   }
   if (info.orden) return { titulo, cuerpo: `${ESTADOS_ORDEN_CAMA[info.orden.estado]}: ${info.orden.falla}` }
   if (info.cama.bloqueo) return { titulo, cuerpo: info.cama.bloqueo.motivo }
-  return { titulo, cuerpo: `${info.cama.habitacion} · ${nombreServicio(info.cama.servicioId)}` }
+  return { titulo, cuerpo: `${info.cama.habitacion}, ${nombreServicio(info.cama.servicioId)}` }
 }
 
 /* Los cuatro estados de la cama. El O2 o la VM del paciente no tienen entrada
@@ -86,7 +86,7 @@ function ListaCamas({ estados, zonaDe, seleccion, onSeleccionar }) {
               const h = info.ocupante?.hospitalizacion
               const p = h && pacientePorId(estado, h.pacienteId)
               const elegida = seleccion === info.cama.id
-              const detalle = p ? `HC ${p.hc} · ${dias(estancia(h.fechaIngreso, estado.ahora))}` : info.orden ? info.orden.falla : info.cama.bloqueo ? info.cama.bloqueo.motivo : null
+              const detalle = p ? `HC ${p.hc}, ${dias(estancia(h.fechaIngreso, estado.ahora))}` : info.orden ? info.orden.falla : info.cama.bloqueo ? info.cama.bloqueo.motivo : null
               return (
                 /* hrl-nativo: tarjeta que se pulsa; el kit no tiene una. */
                 <button
@@ -102,7 +102,7 @@ function ListaCamas({ estados, zonaDe, seleccion, onSeleccionar }) {
                     <Badge label={meta.label} tone={meta.tono} />
                   </span>
                   <span className="mapa-tarjeta__paciente">{p ? p.nombres : '—'}</span>
-                  <span className="texto-apoyo">Hab. {info.cama.habitacion}{detalle ? ` · ${detalle}` : ''}</span>
+                  <span className="texto-apoyo">Hab. {info.cama.habitacion}{detalle ? `, ${detalle}` : ''}</span>
                 </button>
               )
             })}
@@ -113,31 +113,29 @@ function ListaCamas({ estados, zonaDe, seleccion, onSeleccionar }) {
   )
 }
 
-/* Lo que espera a esta cuenta: a quien designa camas, los pacientes que envió
-   Admisión; al piso, los traslados que llegan y las camas que devuelve
-   Mantenimiento. En UCI y Quemados la misma cuenta hace las dos cosas. */
+/* Lo que espera al área: los pacientes que le envió Admisión, los traslados
+   que llegan y las camas que devuelve Mantenimiento. El departamento solo
+   monitorea, así que no tiene nada por atender. */
 function PorAtender({ abrir }) {
   const { estado, cuenta, hacer } = useApp()
-  if (!['enfermeria', 'departamento'].includes(cuenta.rol)) return null
-  const designa = cuenta.designa?.length > 0
-  const piso = cuenta.rol === 'enfermeria'
-  const ordenes = designa ? ordenesPendientes(estado, cuenta.servicios) : []
-  const traslados = piso ? estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)) : []
-  const camas = piso ? estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId)) : []
+  if (cuenta.rol !== 'enfermeria') return null
+  const ordenes = ordenesPendientes(estado, cuenta.servicios)
+  const traslados = estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino))
+  const camas = estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId))
   const filas = [
     ...ordenes.map((o) => {
       const p = pacientePorId(estado, o.pacienteId)
-      return { clave: o.id, que: 'Ingreso', icono: 'sh-plus', quien: p.nombres, detalle: `HC ${p.hc} · ${etiqueta(ORIGENES, o.origen)}${o.diagnosticoIngreso ? ` · ${o.diagnosticoIngreso}` : ''}`, desde: o.fechaHora, boton: 'Designar cama', accion: () => abrir({ tipo: 'ingreso', ordenId: o.id }) }
+      return { clave: o.id, que: 'Ingreso', icono: 'sh-plus', quien: p.nombres, detalle: `HC ${p.hc}, ${etiqueta(ORIGENES, o.origen)}${o.diagnosticoIngreso ? `, ${o.diagnosticoIngreso}` : ''}`, desde: o.fechaHora, boton: 'Designar cama', accion: () => abrir({ tipo: 'ingreso', ordenId: o.id }) }
     }),
     ...traslados.map((t) => {
       const p = pacientePorId(estado, hospitalizacionPorId(estado, t.hospitalizacionId).pacienteId)
-      return { clave: t.id, que: 'Traslado', icono: 'sh-swap', quien: p.nombres, detalle: `Viene de ${nombreServicio(t.servicioOrigen)}`, desde: t.solicitadoEn, boton: 'Confirmar llegada', accion: () => abrir({ tipo: 'confirmarTraslado', trasladoId: t.id }) }
+      return { clave: t.id, que: 'Traslado', icono: 'sh-swap', quien: p.nombres, detalle: `Viene de ${nombreServicio(t.servicioOrigen)}`, desde: t.solicitadoEn, boton: 'Designar cama', accion: () => abrir({ tipo: 'confirmarTraslado', trasladoId: t.id }) }
     }),
     ...camas.map((o) => ({ clave: o.id, que: 'Cama', icono: 'sh-wrench', quien: estado.camas.find((c) => c.id === o.camaId).codigo, detalle: `Devuelta por Mantenimiento: ${o.diagnostico}`, desde: o.entregadaEn, boton: 'Recibir cama', accion: () => hacer('mant/recibir', { ordenId: o.id }, 'Cama recibida. Vuelve a estar libre.') })),
   ]
   if (filas.length === 0) return null
   return (
-    <Card title="Por atender" subtitle={designa ? 'Pacientes que Admisión envió y traslados o camas que esperan confirmación. Para designar, elige la habitación y la cama, o pulsa una cama libre en el plano.' : 'Traslados y camas que esperan una confirmación de este piso.'}>
+    <Card title="Por atender" subtitle="Pacientes que Admisión envió y traslados o camas que esperan a esta área. Para designar, elige la habitación y la cama, o pulsa una cama libre en el plano.">
       <DataTable
         rowKey={(f) => f.clave}
         rows={filas}
@@ -220,7 +218,7 @@ export function MapaCamas() {
         <div className="plano-modulo__lado">
           <PageHeader title={MODULOS.mapa.label} description="Elige una cama en la lista o en el plano: el plano se acerca a ella y abajo aparece su ficha." />
           <div className="plano-modulo__area">
-            <h2 className="plano-modulo__piso">{piso} · {nombreServicio(area)}</h2>
+            <h2 className="plano-modulo__piso">{piso}, {nombreServicio(area)}</h2>
             {servicios.length > 1 && <SegmentedControl label="Área del piso" value={area} options={opcionesArea(servicios)} onChange={cambiarArea} />}
           </div>
           <ListaCamas estados={estados} zonaDe={zonaDe} seleccion={seleccion} onSeleccionar={seleccionar} />

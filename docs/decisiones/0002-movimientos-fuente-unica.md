@@ -1,4 +1,4 @@
-# 0002 · Los movimientos son la fuente única
+# 0002: Los movimientos son la fuente única
 
 - **Estado:** Propuesta
 - **Fecha:** 2026-10-25

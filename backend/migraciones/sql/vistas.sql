@@ -258,7 +258,7 @@ egresos AS (
          (count(*) FILTER (WHERE NOT h.fecha_ingreso_estimada))::integer AS e_f,
          (coalesce(sum(greatest(1, dia_censo(e.fecha_hora) - dia_censo(h.fecha_ingreso))) FILTER (WHERE NOT h.fecha_ingreso_estimada), 0))::integer AS c_f
   FROM egreso e JOIN hospitalizacion h ON h.id = e.hospitalizacion_id
-  WHERE NOT e.anulado AND e.estado IN ('validado', 'cerrado')
+  WHERE NOT e.anulado AND e.estado IN ('completo', 'validado', 'cerrado')
   GROUP BY 1, 2
 ),
 puestos AS (

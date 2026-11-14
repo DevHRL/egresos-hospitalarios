@@ -3,18 +3,17 @@
    los permisos de la cuenta y deja rastro en la bitácora. El censo, los
    reportes y los indicadores se calculan después (ver `consultas.js`).
 
-   Admisión envía al paciente a un departamento; la cuenta del departamento
-   (o la de la unidad, si el departamento no tiene una) designa habitación y
-   cama, y con eso queda el área. Desde ahí el piso
-   controla al paciente y a su cama. Los préstamos de cama aún no existen:
-   una cama solo admite pacientes de su propio servicio. */
+   Admisión envía al paciente a un área; esa área designa habitación y cama y
+   desde ahí controla al paciente y a su cama, hasta registrar el alta completa
+   con CIE-10 y médico (decisión 0010). El departamento solo monitorea. Los
+   préstamos de cama aún no existen: una cama solo admite pacientes de su
+   propio servicio. */
 
 import {
   TRASLADO_NO_INCORPORADO,
   camaPorId,
   censoEditable,
   choqueDeCamas,
-  departamentosConCamas,
   claveCenso,
   cuadreCenso,
   diasDesdeArranque,
@@ -46,13 +45,13 @@ const CENSO = ['enfermeria', 'jefatura']
 const PERMISOS = {
   'orden/registrar': ['admision'],
   'orden/anular': ['admision'],
-  /* Además del rol, la cuenta debe designar en ese departamento (`designa`). */
-  'ingreso/confirmar': ['departamento', 'enfermeria'],
+  'ingreso/confirmar': ENFERMERIA,
   'traslado/registrar': ENFERMERIA,
   'traslado/confirmar': ENFERMERIA,
   'traslado/cancelar': ENFERMERIA,
   'soporte/cambiar': ENFERMERIA,
   'egreso/registrar': ENFERMERIA,
+  'egreso/a_traslado': ENFERMERIA,
   'movimiento/anular': ENFERMERIA,
   'cama/bloquear': ['enfermeria'],
   'cama/desbloquear': ['enfermeria'],
@@ -82,6 +81,7 @@ const DESCRIPCION = {
   'traslado/cancelar': 'Canceló un traslado',
   'soporte/cambiar': 'Cambió el soporte de oxígeno',
   'egreso/registrar': 'Registró un egreso',
+  'egreso/a_traslado': 'Corrigió un alta que era traslado',
   'movimiento/anular': 'Anuló un movimiento',
   'cama/bloquear': 'Bloqueó una cama',
   'cama/desbloquear': 'Desbloqueó una cama',
@@ -205,7 +205,9 @@ export function aplicar(estado, accion) {
 
   switch (tipo) {
     case 'orden/registrar': {
-      if (!departamentosConCamas(e).includes(d.departamentoId)) falla('Elige el departamento de hospitalización.')
+      const area = e.camas.find((c) => c.servicioId === d.servicioId)
+      if (!area) falla('Elige el área de hospitalización.')
+      if (!texto(d.medicoOrdena)) falla('Elige el médico que ordena.')
       if (!['consulta_externa', 'emergencia'].includes(d.origen)) falla('Indica si viene de consulta externa o de emergencia.')
       if (d.origen === 'emergencia' && !texto(d.enviadaPor)) falla('Indica qué enfermera de emergencia envió la orden.')
       let paciente = d.pacienteId ? pacientePorId(e, d.pacienteId) : null
@@ -226,8 +228,8 @@ export function aplicar(estado, accion) {
         id: nuevoId(e, 'ord'),
         pacienteId: paciente.id,
         origen: d.origen,
-        departamentoId: d.departamentoId,
-        servicioId: null,
+        departamentoId: area.departamentoId,
+        servicioId: d.servicioId,
         fechaHora: e.ahora,
         medicoOrdena: texto(d.medicoOrdena),
         diagnosticoIngreso: texto(d.diagnosticoIngreso),
@@ -236,7 +238,7 @@ export function aplicar(estado, accion) {
         hospitalizacionId: null,
       }
       e.ordenes = [...e.ordenes, orden]
-      detalle = `${paciente.nombres} a ${d.departamentoId}`
+      detalle = `${paciente.nombres} a ${d.servicioId}`
       break
     }
 
@@ -254,8 +256,7 @@ export function aplicar(estado, accion) {
       if (!o || o.estado !== 'pendiente') falla('La orden ya no está pendiente.')
       const cama = camaPorId(e, d.camaId)
       if (!cama) falla('Elige la habitación y la cama.')
-      if (cuenta.rol !== 'sistema' && !(cuenta.designa ?? []).includes(o.departamentoId)) falla('En ese departamento la cama la designa la cuenta del departamento.')
-      if (cama.departamentoId !== o.departamentoId) falla('La cama debe ser del departamento al que Admisión envió al paciente.')
+      if (cama.servicioId !== o.servicioId) falla('La cama debe ser del área a la que Admisión envió al paciente.')
       asegurarServicio(cuenta, cama.servicioId)
       asegurarEditable(e, cama.servicioId, d.fechaHora)
       if (d.fechaHora < o.fechaHora) falla('La hora de ingreso no puede ser anterior a la orden de Admisión.')
@@ -346,24 +347,53 @@ export function aplicar(estado, accion) {
       if (trasladoPendienteDe(e, h.id)) falla('Cancela o confirma primero el traslado pendiente.')
       asegurarEditable(e, actual.servicioId, d.fechaHora)
       asegurarOrden(e, h.id, d.fechaHora)
-      if (!d.tipoEgreso) falla('Elige el tipo de egreso.')
-      const hospitalario = esEgresoHospitalario(d.tipoEgreso)
-      if (hospitalario && !d.condicion) falla('Elige la condición de egreso.')
+      if (!d.tipoEgreso) falla('Elige el tipo de alta.')
+      /* Antes o después de 48 h lo decide la hora de ingreso, no quien registra. */
+      const tipoEgreso = d.tipoEgreso === 'fallecido'
+        ? (Date.parse(d.fechaHora) - Date.parse(h.fechaIngreso) < 48 * 3.6e6 ? 'fallecido_menor_48' : 'fallecido_mayor_48')
+        : d.tipoEgreso
+      const hospitalario = esEgresoHospitalario(tipoEgreso)
+      const condicion = tipoEgreso.startsWith('fallecido') ? 'fallecido' : d.condicion
+      if (hospitalario && !condicion) falla('Elige la condición de egreso.')
       if (!hospitalario && !texto(d.destino)) falla('Indica el servicio de destino.')
-      agregarMovimiento(e, { hospitalizacionId: h.id, tipo: 'egreso', fechaHora: d.fechaHora, camaId: actual.camaId, servicioId: actual.servicioId, tipoEgreso: d.tipoEgreso }, cuenta)
+      const cie10 = hospitalario ? [...new Set([texto(d.cie10), ...(d.secundarios ?? [])].filter(Boolean))] : []
+      if (hospitalario && !d.medicoId) falla('Elige el médico que dio el alta.')
+      if (hospitalario && !texto(d.cie10)) falla('Elige el diagnóstico de egreso (CIE-10).')
+      if (hospitalario) {
+        const error = validarCie(cie10[0], pacientePorId(e, h.pacienteId), d.fechaHora)
+        if (error) falla(error)
+      }
+      agregarMovimiento(e, { hospitalizacionId: h.id, tipo: 'egreso', fechaHora: d.fechaHora, camaId: actual.camaId, servicioId: actual.servicioId, tipoEgreso }, cuenta)
       const egreso = {
         fechaHora: d.fechaHora,
-        tipo: d.tipoEgreso,
-        condicion: d.condicion ?? null,
+        tipo: tipoEgreso,
+        condicion: hospitalario ? condicion : null,
         destino: texto(d.destino),
         servicioId: actual.servicioId,
-        medicoId: d.medicoId || null,
-        cie10: [],
-        estado: hospitalario ? 'pendiente_hc' : null,
-        hc: hospitalario ? 'pendiente_entrega' : null,
+        medicoId: hospitalario ? d.medicoId : null,
+        cie10,
+        estado: hospitalario ? 'completo' : null,
+        completadoEn: hospitalario ? e.ahora : null,
       }
       e.hospitalizaciones = reemplazar(e.hospitalizaciones, h.id, { egreso })
-      detalle = d.tipoEgreso
+      detalle = tipoEgreso
+      break
+    }
+
+    case 'egreso/a_traslado': {
+      /* Anula el alta (el paciente vuelve a su cama) y registra el traslado. */
+      const h = hospitalizacionPorId(e, d.hospitalizacionId)
+      if (!h?.egreso || !esEgresoHospitalario(h.egreso.tipo)) falla('Ese paciente no tiene un alta que corregir.')
+      if (!texto(d.motivo)) falla('Escribe el motivo de la corrección.')
+      if (d.servicioDestino === h.egreso.servicioId) falla('El destino debe ser otra área.')
+      const incorporado = serviciosConCamas(e).includes(d.servicioDestino)
+      if (!incorporado && !texto(d.destinoNombre)) falla('Elige el área de destino.')
+      const salida = movimientosDe(e, h.id).at(-1)
+      if (ocupantes(e, hasta(e.ahora)).has(salida.camaId)) falla('La cama que dejó el paciente ya la ocupa otro. Corrige primero ese ingreso.')
+      const sinAlta = aplicar(e, { tipo: 'movimiento/anular', cuenta, movimientoId: salida.id, motivo: `Era traslado: ${texto(d.motivo)}` })
+      return incorporado
+        ? aplicar(sinAlta, { tipo: 'traslado/registrar', cuenta, hospitalizacionId: h.id, servicioDestino: d.servicioDestino })
+        : aplicar(sinAlta, { tipo: 'egreso/registrar', cuenta, hospitalizacionId: h.id, tipoEgreso: TRASLADO_NO_INCORPORADO, destino: d.destinoNombre, fechaHora: h.egreso.fechaHora })
       break
     }
 
@@ -376,7 +406,7 @@ export function aplicar(estado, accion) {
       const propios = movimientosDe(e, m.hospitalizacionId)
       if (propios[propios.length - 1].id !== m.id) falla('Solo se puede anular el último movimiento del paciente.')
       const h = hospitalizacionPorId(e, m.hospitalizacionId)
-      if (m.tipo === 'egreso' && h.egreso?.estado && h.egreso.estado !== 'pendiente_hc') falla('Estadística ya trabajó ese egreso.')
+      if (m.tipo === 'egreso' && ['validado', 'cerrado'].includes(h.egreso?.estado)) falla('Estadística ya validó ese egreso.')
       e.movimientos = reemplazar(e.movimientos, m.id, { anulado: true, motivoAnulacion: texto(d.motivo) })
       if (m.tipo === 'ingreso') {
         e.hospitalizaciones = reemplazar(e.hospitalizaciones, h.id, { anulada: true })

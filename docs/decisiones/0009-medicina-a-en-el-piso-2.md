@@ -1,4 +1,4 @@
-# 0009 · Medicina A en el piso 2
+# 0009: Medicina A en el piso 2
 
 - **Estado:** Adoptada
 - **Fecha:** 2026-11-12

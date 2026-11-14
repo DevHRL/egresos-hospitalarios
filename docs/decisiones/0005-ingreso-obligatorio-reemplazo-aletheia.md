@@ -1,4 +1,4 @@
-# 0005 · Ingreso obligatorio y reemplazo de Aletheia
+# 0005: Ingreso obligatorio y reemplazo de Aletheia
 
 - **Estado:** Propuesta
 - **Fecha:** 2026-10-27

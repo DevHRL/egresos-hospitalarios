@@ -16,7 +16,6 @@ const I = 'medicina-intermedios'
 const UCI = 'cuidados-criticos'
 const QUE = 'quemados'
 const SISTEMA = { id: 'sistema', rol: 'sistema', servicios: [] }
-const MEDICINA = 'medicina'
 
 const PACIENTES = [
   ['Ríos Demo, Ana', 'F', '1958-03-12'],
@@ -58,8 +57,8 @@ export function crearSemilla(plano) {
 
   const ingreso = (i, servicioId, codigo, f, origen = 'emergencia', dx = 'Neumonía') => {
     reloj(f)
-    accion('orden/registrar', { paciente: PACIENTES[i], origen, departamentoId: departamentoDe(servicioId), medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
-    /* Quien designa elige la cama; `servicioId` solo dice en qué área cae. */
+    accion('orden/registrar', { paciente: PACIENTES[i], origen, servicioId, medicoOrdena: 'Dra. Demo Salazar', diagnosticoIngreso: dx, enviadaPor: origen === 'emergencia' ? 'Enfermería de Emergencia' : '' })
+    /* El área de la orden designa la cama. */
     if (e.camas.find((c) => c.id === cama(codigo))?.servicioId !== servicioId) throw new Error(`La cama ${codigo} no es de ${servicioId}`)
     accion('ingreso/confirmar', { ordenId: e.ordenes.at(-1).id, camaId: cama(codigo), fechaHora: f })
   }
@@ -116,18 +115,16 @@ export function crearSemilla(plano) {
 
   /* 6 de noviembre: un egreso ya validado y un ingreso. */
   reloj('2026-11-06T10:00')
-  accion('egreso/registrar', { hospitalizacionId: hospDe(11), fechaHora: '2026-11-06T10:00', tipoEgreso: 'alta_medica', condicion: 'mejorado' })
+  accion('egreso/registrar', { hospitalizacionId: hospDe(11), fechaHora: '2026-11-06T10:00', tipoEgreso: 'alta_medica', condicion: 'mejorado', cie10: 'I10', medicoId: 'med-2' })
   ingreso(14, B, 'B-22', '2026-11-06T15:00', 'consulta_externa', 'Hipertensión')
   cerrar('2026-11-06', '2026-11-07T07:30')
-  accion('hc/recibir', { hc: PACIENTES[11].hc })
-  accion('egreso/completar', { hospitalizacionId: hospDe(11), cie10: 'I10', medicoId: 'med-2' })
   accion('egreso/validar', { hospitalizacionId: hospDe(11) })
 
   /* 7 de noviembre: dos altas, un traslado y una cama enviada a mantenimiento. */
   reloj('2026-11-07T09:00')
-  accion('egreso/registrar', { hospitalizacionId: hospDe(8), fechaHora: '2026-11-07T09:00', tipoEgreso: 'alta_medica', condicion: 'curado' })
+  accion('egreso/registrar', { hospitalizacionId: hospDe(8), fechaHora: '2026-11-07T09:00', tipoEgreso: 'alta_medica', condicion: 'curado', cie10: 'N39.0', medicoId: 'med-1' })
   reloj('2026-11-07T11:00')
-  accion('egreso/registrar', { hospitalizacionId: hospDe(3), fechaHora: '2026-11-07T11:00', tipoEgreso: 'alta_voluntaria', condicion: 'mejorado' })
+  accion('egreso/registrar', { hospitalizacionId: hospDe(3), fechaHora: '2026-11-07T11:00', tipoEgreso: 'alta_voluntaria', condicion: 'mejorado', cie10: 'A91', medicoId: 'med-3' })
   reloj('2026-11-07T12:00')
   accion('traslado/registrar', { hospitalizacionId: hospDe(9), servicioDestino: I })
   reloj('2026-11-07T12:40')
@@ -136,19 +133,17 @@ export function crearSemilla(plano) {
   accion('falla/reportar', { camaId: cama('B-18'), falla: 'Baranda lateral rota' })
   accion('mant/retirar', { ordenId: e.ordenesCama.at(-1).id, conReemplazo: false })
   cerrar('2026-11-07', '2026-11-08T07:30')
-  accion('hc/recibir', { hc: PACIENTES[8].hc })
-  accion('egreso/completar', { hospitalizacionId: hospDe(8), cie10: 'N39.0', medicoId: 'med-1' })
 
   /* 8 de noviembre: lo que queda por hacer en la demostración. */
   ingreso(15, B, 'B-06', '2026-11-08T08:15', 'emergencia', 'Fiebre en estudio')
   reloj('2026-11-08T09:00')
   accion('falla/reportar', { camaId: cama('B-11'), falla: 'No sube el respaldo' })
   reloj('2026-11-08T09:40')
-  accion('orden/registrar', { paciente: PACIENTES[16], origen: 'consulta_externa', departamentoId: MEDICINA, medicoOrdena: 'Dr. Demo Paredes', diagnosticoIngreso: 'Enfermedad renal crónica', enviadaPor: '' })
+  accion('orden/registrar', { paciente: PACIENTES[16], origen: 'consulta_externa', servicioId: B, medicoOrdena: 'Dr. Demo Paredes', diagnosticoIngreso: 'Enfermedad renal crónica', enviadaPor: '' })
   reloj('2026-11-08T10:05')
-  accion('orden/registrar', { paciente: PACIENTES[17], origen: 'emergencia', departamentoId: MEDICINA, medicoOrdena: 'Dra. Demo Vásquez', diagnosticoIngreso: 'Neumonía', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
+  accion('orden/registrar', { paciente: PACIENTES[17], origen: 'emergencia', servicioId: B, medicoOrdena: 'Dra. Demo Vásquez', diagnosticoIngreso: 'Neumonía', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
   reloj('2026-11-08T10:20')
-  accion('orden/registrar', { paciente: PACIENTES[18], origen: 'emergencia', departamentoId: MEDICINA, medicoOrdena: 'Dr. Demo Tuesta', diagnosticoIngreso: 'Insuficiencia respiratoria', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
+  accion('orden/registrar', { paciente: PACIENTES[18], origen: 'emergencia', servicioId: I, medicoOrdena: 'Dr. Demo Tuesta', diagnosticoIngreso: 'Insuficiencia respiratoria', enviadaPor: 'Enfermería de Emergencia, turno mañana' })
   reloj(AHORA_DEMO)
   return { ...e, bitacora: [] }
 }

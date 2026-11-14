@@ -62,7 +62,7 @@ export function BuscarPaciente() {
           <Input label="N° de HC, DNI o apellidos" searchIcon autoFocus value={texto} onChange={(e) => { setTexto(e.target.value); setId(null) }} />
           {!paciente && hallados.map((p) => (
             <Stack key={p.id} direction="row" justify="between" align="center" gap={2}>
-              <span>{p.nombres} · HC {p.hc} · DNI {p.dni}</span>
+              <span>{p.nombres}, HC {p.hc}, DNI {p.dni}</span>
               <Button size="sm" tone="ghost" onClick={() => setId(p.id)}>Ver ficha</Button>
             </Stack>
           ))}

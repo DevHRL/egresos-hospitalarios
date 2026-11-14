@@ -24,7 +24,7 @@ export function Consolidado() {
           { key: 'estado', label: 'Censo', width: 110, render: (f) => <Badge label={f.est.label} tone={f.est.tono} /> },
         ]} />
       </Card>
-      <Card title="Egresos del mes" subtitle="Solo los validados cuentan en los indicadores.">
+      <Card title="Egresos del mes" subtitle="Cuentan desde que el área registra el alta. Validar es requisito para cerrar el mes.">
         <DataTable rowKey={(h) => h.id} rows={egresos} empty="Sin egresos este mes." columns={[
           { key: 'egreso', label: 'Egreso', width: 140, render: (h) => verFechaHora(h.egreso.fechaHora) },
           { key: 'paciente', label: 'Paciente', render: (h) => pacientePorId(estado, h.pacienteId).nombres },
@@ -40,35 +40,69 @@ export function Consolidado() {
   )
 }
 
+/* Los grupos del formulario, en su orden (estructura del Excel diario de camas).
+   UCI Cirugía y Quemados van en «Otros», como en ese Excel. */
+const GRUPOS_RENOXI = ['UCI (con o sin VM)', 'Intermedios (con o sin O2)', 'Hospitalización adultos (con o sin O2)', 'Hospitalización pediátrica', 'UPSS Emergencia', 'Otros']
 const GRUPO_RENOXI = {
-  'cuidados-criticos': 'UCI (con/sin VM)',
-  'uci-cirugia': 'UCI (con/sin VM)',
-  'uci-pediatria': 'UCI (con/sin VM)',
-  'medicina-intermedios': 'Intermedios (con/sin O2)',
-  'medicina-a': 'Hospitalización adultos (con/sin O2)',
-  'medicina-b': 'Hospitalización adultos (con/sin O2)',
+  'cuidados-criticos': 0,
+  'uci-pediatria': 0,
+  'medicina-intermedios': 1,
+  'medicina-a': 2,
+  'medicina-b': 2,
+  'uci-cirugia': 5,
+  quemados: 5,
 }
-/* Quemados aún no tiene fila asignada en el formulario (decisión 0008). */
-const grupoRenoxi = (servicioId) => GRUPO_RENOXI[servicioId] ?? 'Sin fila asignada'
+const ordenRenoxi = (servicioId) => GRUPO_RENOXI[servicioId] ?? GRUPOS_RENOXI.length
+const grupoRenoxi = (servicioId) => GRUPOS_RENOXI[ordenRenoxi(servicioId)] ?? 'Sin fila asignada'
+const filasRenoxi = (estado, dia) => [...renoxiDelDia(estado, dia)].sort((a, b) => ordenRenoxi(a.servicioId) - ordenRenoxi(b.servicioId) || nombreServicio(a.servicioId).localeCompare(nombreServicio(b.servicioId), 'es'))
+
+const COLUMNAS_CSV = [['camas', 'Camas'], ['operativas', 'Operativas'], ['sinO2', 'Sin O2'], ['conO2', 'Con O2'], ['conVM', 'Con VM'], ['ocupadas', 'Ocupadas'], ['disponibles', 'Disponibles']]
+
+/* CSV con punto y coma y BOM: Excel en español lo abre directo, con tildes. */
+function descargarCsv(nombre, dias, estado) {
+  const linea = (celdas) => celdas.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(';')
+  const filas = [linea(['Día', 'Grupo', 'Servicio', ...COLUMNAS_CSV.map(([, t]) => t)])]
+  for (const dia of dias) {
+    for (const f of filasRenoxi(estado, dia)) filas.push(linea([dia, grupoRenoxi(f.servicioId), nombreServicio(f.servicioId), ...COLUMNAS_CSV.map(([k]) => f[k])]))
+  }
+  const url = URL.createObjectURL(new Blob([`\ufeff${filas.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' }))
+  const enlace = document.createElement('a')
+  enlace.href = url
+  enlace.download = nombre
+  enlace.click()
+  URL.revokeObjectURL(url)
+}
+
+/* Días del mes con censo ya cerrado o pasado: hasta ayer. */
+function diasDelMesHastaAyer(estado, mes) {
+  const ayer = sumarDias(diaDe(estado.ahora), -1)
+  const dias = []
+  for (let d = `${mes}-01`; mesDe(d) === mes && d <= ayer; d = sumarDias(d, 1)) dias.push(d)
+  return dias
+}
 
 export function Renoxi() {
   const { estado, cuenta, hacer } = useApp()
   const [diaElegido, setDia] = useState(null)
   const dia = diaElegido ?? sumarDias(diaDe(estado.ahora), -1)
-  const filas = renoxiDelDia(estado, dia)
+  const filas = filasRenoxi(estado, dia)
   const cargado = estado.renoxi[dia]
   const mes = mesDe(dia)
   const cargados = Object.keys(estado.renoxi).filter((d) => mesDe(d) === mes).length
   const puede = ['camas', 'jefatura'].includes(cuenta.rol)
   return (
     <div className="panel"><Stack gap={4}>
-      <PageActions>{puede && <Button icon="sh-check" disabled={Boolean(cargado)} onClick={() => hacer('renoxi/marcar', { dia }, 'Día marcado como cargado.')}>Marcar como cargado</Button>}</PageActions>
+      <PageActions>
+        <Button tone="ghost" icon="sh-export" onClick={() => descargarCsv(`renoxi-${dia}.csv`, [dia], estado)}>Descargar el día</Button>
+        <Button tone="ghost" icon="sh-export" onClick={() => descargarCsv(`renoxi-${mes}.csv`, diasDelMesHastaAyer(estado, mes), estado)}>Descargar el mes</Button>
+        {puede && <Button icon="sh-check" disabled={Boolean(cargado)} onClick={() => hacer('renoxi/marcar', { dia }, 'Día marcado como cargado.')}>Marcar como cargado</Button>}
+      </PageActions>
       <Grid min={180} gap={3}>
         <StatCard label="Días cargados este mes" value={`${cargados} / 20`} severity={cargados >= 20 ? 'normal' : 'neutral'} note="RENOXI pide al menos 20 días" />
         <StatCard label="Estado del día" value={cargado ? 'Cargado' : 'Sin cargar'} note={cargado ? verFechaHora(cargado.cargadoEn) : verFecha(dia)} />
       </Grid>
       <Card title={`RENOXI del ${verFecha(dia)}`} subtitle="En el mismo orden del formulario web." actions={<Input label="Día" labelHidden kind="date" value={dia} onChange={(e) => setDia(e.target.value)} />}>
-        <DataTable rowKey={(f) => f.servicioId} rows={[...filas].sort((a, b) => grupoRenoxi(a.servicioId).localeCompare(grupoRenoxi(b.servicioId)) * -1)} columns={[
+        <DataTable rowKey={(f) => f.servicioId} rows={filas} columns={[
           { key: 'grupo', label: 'Grupo', width: 280, render: (f) => grupoRenoxi(f.servicioId) },
           { key: 'servicio', label: 'Servicio', render: (f) => nombreServicio(f.servicioId) },
           { key: 'camas', label: 'Camas', width: 80, align: 'right' },
@@ -92,7 +126,7 @@ function mesesDisponibles(estado) {
   return lista.reverse()
 }
 
-const VARIABLES_AJUSTE = [{ value: 'A', label: 'A · N° de camas' }, { value: 'B', label: 'B · Pacientes-día' }, { value: 'C', label: 'C · Días de estancia' }, { value: 'D', label: 'D · Días-cama' }, { value: 'E', label: 'E · Egresos' }]
+const VARIABLES_AJUSTE = [{ value: 'A', label: 'A: N° de camas' }, { value: 'B', label: 'B: Pacientes-día' }, { value: 'C', label: 'C: Días de estancia' }, { value: 'D', label: 'D: Días-cama' }, { value: 'E', label: 'E: Egresos' }]
 
 function DialogoAjuste({ mes, servicios, onCerrar }) {
   const { error, enviar } = useEnvio(onCerrar)
@@ -135,7 +169,7 @@ export function Indicadores() {
           ? 'Estas son las cifras fijadas al cerrar. Un cambio posterior en el plano o la dotación no las altera.'
           : `D usa los días con censo cerrado (${total.diasConCenso} de ${calculado.diasDelMes}): al completarse el mes es igual a A × días del mes. El cierre se habilita cuando termina el mes.`}
       </Alert>
-      <Card title={`Indicadores de ${mes}`} subtitle="B sale solo de censos cerrados. E y C, solo de egresos validados." actions={<Input label="Mes" labelHidden kind="select" value={mes} onChange={(e) => setElegido(e.target.value)} options={mesesDisponibles(estado).map((m) => ({ value: m, label: m }))} />}>
+      <Card title={`Indicadores de ${mes}`} subtitle="Se calculan solos. B sale de los censos cerrados; E y C, de las altas que registró cada área." actions={<Input label="Mes" labelHidden kind="select" value={mes} onChange={(e) => setElegido(e.target.value)} options={mesesDisponibles(estado).map((m) => ({ value: m, label: m }))} />}>
         <DataTable rowKey={(f) => f.servicioId} rows={filas} columns={[
           { key: 'servicio', label: 'Servicio', render: (f) => (f.servicioId === 'total' ? <strong>Total</strong> : nombreServicio(f.servicioId)) },
           col('A', 'A', 'N° de camas'), col('B', 'B', 'Pacientes-día'), col('C', 'C', 'Días de estancia de los egresados'), col('D', 'D', 'Días-cama disponibles'), col('E', 'E', 'Egresos'), col('F', 'F', 'Promedio de permanencia (C / E), sin fechas estimadas'), col('G', 'G %', '% de ocupación (B × 100 / D)'), col('H', 'H', 'Rendimiento de cama (E / A)'), col('I', 'I', 'Intervalo de sustitución ((D − B) / E)'),

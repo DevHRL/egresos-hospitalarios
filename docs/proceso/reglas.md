@@ -21,9 +21,9 @@ cama física (activo) se registra aparte para el mantenimiento; ver
 | Ingreso | Primer movimiento de la hospitalización. Abre la hospitalización y ocupa una cama. |
 | Traslado | Cambio de servicio y/o cama dentro de la misma hospitalización. **No es egreso** (decisión 5). |
 | Préstamo de cama | El paciente ocupa una cama cuyo servicio dueño no es el que lo atiende. Cuenta para el **servicio que atiende** (decisión 6). Se marca solo; no requiere aprobación previa: se regulariza al cierre del censo. |
-| Egreso | Salida del hospital. Cierra la hospitalización y libera la cama. Se registra con poco: médico que dio el alta, fecha, hora y tipo de egreso (o traslado). Los datos del paciente salen del ingreso. |
+| Egreso (alta) | Salida del hospital. Cierra la hospitalización y libera la cama. El área la registra completa: tipo de alta, condición, CIE-10, médico que dio el alta, fecha y hora, todo elegido de listas (decisión 0010). Los datos del paciente salen del ingreso. Un traslado nunca se registra como alta: tiene su propio proceso. |
 | Traslado a un servicio fuera del sistema | Mientras el sistema no cubra todo el hospital (piloto), el traslado a un servicio no incorporado (p. ej. UCI) cierra la estancia en el sistema con tipo *traslado a servicio no incorporado*. **No cuenta como egreso hospitalario.** Lo mismo al revés: quien llega de un servicio no incorporado entra con procedencia *traslado desde X*. |
-| Tipo de egreso | Alta médica, alta voluntaria, retiro sin alta (fuga), referido a otro establecimiento, fallecido < 48 h, fallecido ≥ 48 h. |
+| Tipo de egreso | Alta médica, alta voluntaria, retiro sin alta (fuga), referido a otro establecimiento, fallecido. Antes o después de 48 h lo calcula el sistema con la hora de ingreso. |
 | Egreso de servicio | Traslado de salida visto desde el servicio. Se calcula aparte; si entra en los indicadores por servicio es *configurable* (pendiente 6). |
 
 ## Censo diario

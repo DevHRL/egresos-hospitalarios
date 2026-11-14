@@ -1,4 +1,4 @@
-# 0006 · Una credencial por área
+# 0006: Una credencial por área
 
 - **Estado:** Adoptada
 - **Fecha:** 2026-10-27

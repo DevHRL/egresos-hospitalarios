@@ -1,4 +1,4 @@
-# 0007 · Orden al departamento, seis cuentas y plano precargado
+# 0007: Orden al departamento, seis cuentas y plano precargado
 
 - **Estado:** Adoptada
 - **Fecha:** 2026-11-11

@@ -32,7 +32,7 @@ def test_motor_16(conn):
     assert uno(conn, "SHOW server_version_num").startswith("16")
 
 
-@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 1), ("zona", 95), ("cama", 67), ("activo_cama", 67), ("cuenta", 10), ("dotacion_version", 2)])
+@pytest.mark.parametrize("tabla,total", [("departamento", 16), ("servicio", 25), ("piso", 1), ("zona", 95), ("cama", 67), ("activo_cama", 67), ("cuenta", 11), ("dotacion_version", 2)])
 def test_maestros(conn, tabla, total):
     assert uno(conn, f"SELECT count(*) FROM {tabla}") == total
 
@@ -51,9 +51,10 @@ def test_dotaciones(conn):
     assert uno(conn, "SELECT sum(n_camas) FROM dotacion_detalle WHERE version_id = 'conteo-fisico-2026'") == 260
 
 
-def test_solo_las_nueve_cuentas_del_prototipo_estan_activas(conn):
+def test_solo_las_diez_cuentas_del_prototipo_estan_activas(conn):
     activas = conn.execute(text("SELECT id FROM cuenta WHERE activo AND rol <> 'sistema' ORDER BY id")).scalars().all()
-    assert activas == ["admision", "dep.medicina", "estadistica", "mantenimiento", "medicina.a", "medicina.b", "medicina.int", "quemados", "uci"]
+    assert activas == ["admision", "control.camas", "dep.medicina", "estadistica", "mantenimiento", "medicina.a", "medicina.b", "medicina.int", "quemados", "uci"]
+    assert uno(conn, "SELECT rol FROM cuenta WHERE id = 'control.camas'") == "camas"
     assert uno(conn, "SELECT rol FROM cuenta WHERE id = 'dep.medicina'") == "departamento"
 
 
@@ -71,7 +72,7 @@ def test_demostracion(conn):
     assert fila(conn, "SELECT count(*) FILTER (WHERE tipo='ingreso'), count(*) FILTER (WHERE tipo='traslado'), count(*) FILTER (WHERE tipo='soporte'), count(*) FILTER (WHERE tipo='egreso') FROM movimiento") == (24, 1, 6, 3)
     assert uno(conn, "SELECT count(*) FROM traslado WHERE estado = 'confirmado'") == 1
     assert uno(conn, "SELECT count(*) FROM orden_mantenimiento") == 2
-    assert sorted(r[0] for r in conn.execute(text("SELECT estado FROM egreso"))) == ["completo", "pendiente_hc", "validado"]
+    assert sorted(r[0] for r in conn.execute(text("SELECT estado FROM egreso"))) == ["completo", "completo", "validado"]
     assert uno(conn, "SELECT count(*) FROM censo_diario WHERE estado = 'cerrado'") == 15
     assert uno(conn, "SELECT con_vm FROM renoxi_del_dia('2026-11-07') WHERE servicio_id = 'cuidados-criticos'") == 1
 
@@ -110,7 +111,8 @@ def test_renoxi_de_un_dia_anterior_al_retiro(conn):
 
 def test_indicadores(conn):
     b = fila(conn, "SELECT a, b, c, d, e, round(f, 2), round(g, 2), round(h, 2), round(i, 2) FROM mv_indicadores_mes WHERE base = 'mapeo' AND servicio_id = :s", s=B)
-    assert tuple(float(x) for x in b) == (24, 33, 1, 72, 1, 1.00, 45.83, 0.04, 39.00)
+    # Las tres altas de B cuentan desde que el área las registra (decisión 0010), no al validarse.
+    assert tuple(float(x) for x in b) == (24, 33, 5, 72, 3, 1.67, 45.83, 0.13, 13.00)
     i = fila(conn, "SELECT a, b, c, d, e, f, round(g, 2), round(h, 2), i FROM mv_indicadores_mes WHERE base = 'mapeo' AND servicio_id = :s", s=I)
     assert (i[0], i[1], i[2], i[3], i[4], i[5], float(i[6]), float(i[7]), i[8]) == (5, 7, 0, 15, 0, None, 46.67, 0.0, None)
     assert uno(conn, "SELECT a FROM mv_indicadores_mes WHERE base = 'oficial' AND departamento_id = 'medicina'") == 42

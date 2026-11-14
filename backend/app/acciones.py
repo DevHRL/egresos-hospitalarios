@@ -19,20 +19,21 @@ def falla(mensaje: str):
 
 
 SISTEMA = {"id": "sistema", "rol": "sistema", "servicios": []}
-# Desde el 2026-11-11: el piso controla a su paciente; Estadística ya no
-# registra movimientos por él. La cuenta del departamento solo designa camas; en
-# un departamento sin esa cuenta (UCI, Quemados) designa la enfermería de la
-# unidad (2026-11-12, decisión 0008).
+# Desde el 2026-11-13 (decisión 0010): Admisión envía al paciente a un área y esa
+# área designa la cama y controla al paciente. La cuenta del departamento solo
+# monitorea. El área registra el alta completa (CIE-10 y médico): Estadística ya
+# no la completa desde la HC.
 ENFERMERIA = ("enfermeria",)
 CENSO = ("enfermeria", "jefatura")
 ESTADISTICA = ("tecnico", "jefatura")
 TRASLADO_NO_INCORPORADO = "traslado_no_incorporado"
+TIPOS_ALTA = ("alta_medica", "alta_voluntaria", "fuga", "referido", "fallecido_menor_48", "fallecido_mayor_48")
 ORIGENES = ("consulta_externa", "emergencia", "referencia", "otro_servicio")
 
 PERMISOS = {
     "orden/registrar": ("admision",),
     "orden/anular": ("admision",),
-    "ingreso/confirmar": ("departamento", "enfermeria"),
+    "ingreso/confirmar": ENFERMERIA,
     "ingreso/previo": ENFERMERIA,
     "ingreso/corregir": ESTADISTICA,
     "traslado/registrar": ENFERMERIA,
@@ -40,6 +41,7 @@ PERMISOS = {
     "traslado/cancelar": ENFERMERIA,
     "soporte/cambiar": ENFERMERIA,
     "egreso/registrar": ENFERMERIA,
+    "egreso/a_traslado": ENFERMERIA,
     "movimiento/anular": ENFERMERIA,
     "cama/bloquear": ("enfermeria",),
     "cama/desbloquear": ("enfermeria",),
@@ -72,6 +74,7 @@ DESCRIPCION = {
     "traslado/cancelar": "Canceló un traslado",
     "soporte/cambiar": "Cambió el soporte",
     "egreso/registrar": "Registró un egreso",
+    "egreso/a_traslado": "Corrigió un alta que era traslado",
     "movimiento/anular": "Anuló un movimiento",
     "cama/bloquear": "Bloqueó una cama",
     "cama/desbloquear": "Desbloqueó una cama",
@@ -128,26 +131,6 @@ class Ctx:
     def asegurar_servicio(self, servicio: str) -> None:
         if self.cuenta["rol"] in ("enfermeria", "departamento") and servicio not in self.cuenta["servicios"]:
             falla("Esta cuenta solo opera las camas de su servicio.")
-
-    def asegurar_designa(self, departamento: str) -> None:
-        """La cuenta del departamento designa en el suyo; la enfermería de una unidad,
-        solo si su departamento no tiene esa cuenta. Igual que `designa` en
-        frontend/src/app/datos/cuentas.js."""
-        if self.cuenta["rol"] == "sistema":
-            return
-        propios = self.valor(
-            "SELECT EXISTS (SELECT 1 FROM servicio WHERE departamento_id = :d AND id = ANY(:s))",
-            d=departamento, s=list(self.cuenta["servicios"]),
-        )
-        if self.cuenta["rol"] == "enfermeria" and propios:
-            propios = not self.valor(
-                """SELECT EXISTS (SELECT 1 FROM cuenta c JOIN cuenta_servicio cs ON cs.cuenta_id = c.id
-                     JOIN servicio s ON s.id = cs.servicio_id
-                     WHERE c.activo AND c.rol = 'departamento' AND s.departamento_id = :d)""",
-                d=departamento,
-            )
-        if not propios:
-            falla("En ese departamento la cama la designa la cuenta del departamento.")
 
     def asegurar_fecha(self, f) -> None:
         if not es_fecha_hora(f):
@@ -325,11 +308,15 @@ def _sin_hospitalizacion_abierta(c: Ctx, paciente: int) -> None:
 
 
 def orden_registrar(c: Ctx, d: dict) -> str:
-    """Admisión envía al paciente a un departamento; la cama la designa el departamento."""
-    if d.get("departamentoId") not in c.departamentos_con_camas():
-        falla("Elige el departamento de hospitalización.")
+    """Admisión envía al paciente a un área; esa área designa la habitación y la cama."""
+    area = d.get("servicioId")
+    if area not in c.servicios_con_camas():
+        falla("Elige el área de hospitalización.")
+    departamento = c.valor("SELECT departamento_id FROM servicio WHERE id = :s", s=area)
     if d.get("origen") not in ORIGENES:
         falla("Indica por dónde llega el paciente.")
+    if not texto_de(d.get("medicoOrdena")):
+        falla("Elige el médico que ordena.")
     if d["origen"] == "emergencia" and not texto_de(d.get("enviadaPor")):
         falla("Indica qué enfermera de emergencia envió la orden.")
     procedencia = d.get("servicioProcedencia") or None
@@ -340,14 +327,14 @@ def orden_registrar(c: Ctx, d: dict) -> str:
         falla("Ese paciente ya tiene una orden de hospitalización pendiente.")
     _sin_hospitalizacion_abierta(c, paciente)
     c.ejec(
-        """INSERT INTO orden_hospitalizacion (paciente_id, origen, departamento_id, servicio_procedencia_id, fecha_hora, medico_ordena,
+        """INSERT INTO orden_hospitalizacion (paciente_id, origen, departamento_id, servicio_id, servicio_procedencia_id, fecha_hora, medico_ordena,
              diagnostico_ingreso, enviada_por, estado, registrada_por)
-           VALUES (:p, :origen, :dep, :proc, desde_local(:ahora), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), 'pendiente', :cuenta)""",
-        p=paciente, origen=d["origen"], dep=d["departamentoId"], proc=procedencia if d["origen"] == "otro_servicio" else None, ahora=c.ahora,
+           VALUES (:p, :origen, :dep, :area, :proc, desde_local(:ahora), NULLIF(:medico, ''), NULLIF(:dx, ''), NULLIF(:env, ''), 'pendiente', :cuenta)""",
+        p=paciente, origen=d["origen"], dep=departamento, area=area, proc=procedencia if d["origen"] == "otro_servicio" else None, ahora=c.ahora,
         medico=texto_de(d.get("medicoOrdena")), dx=texto_de(d.get("diagnosticoIngreso")), env=texto_de(d.get("enviadaPor")), cuenta=c.cuenta["id"],
     )
     hc = c.valor("SELECT n_hc FROM paciente WHERE id = :p", p=paciente)
-    return f"HC {hc} a {d['departamentoId']}"
+    return f"HC {hc} a {area}"
 
 
 def orden_anular(c: Ctx, d: dict) -> str:
@@ -362,20 +349,21 @@ def orden_anular(c: Ctx, d: dict) -> str:
 
 
 def ingreso_confirmar(c: Ctx, d: dict) -> str:
-    """Quien designa (el departamento o, si no tiene cuenta, la unidad) elige habitación
-    y cama. La cama define el área y desde ese momento el piso controla al paciente."""
+    """El área a la que Admisión envió al paciente elige habitación y cama, y desde
+    ese momento controla al paciente. El departamento solo monitorea."""
     o = c.uno(
         "SELECT *, texto_local(fecha_hora) AS fecha_texto FROM orden_hospitalizacion WHERE id = :o",
         o=id_de(d.get("ordenId")),
     )
     if not o or o["estado"] != "pendiente":
         falla("La orden ya no está pendiente.")
-    c.asegurar_designa(o["departamento_id"])
     cama = c.cama(d.get("camaId"))
     if not cama:
         falla("Elige la habitación y la cama.")
     servicio = cama["servicio_id"]
-    if c.valor("SELECT departamento_id FROM servicio WHERE id = :s", s=servicio) != o["departamento_id"]:
+    if o["servicio_id"] and servicio != o["servicio_id"]:
+        falla("La cama debe ser del área a la que Admisión envió al paciente.")
+    if not o["servicio_id"] and c.valor("SELECT departamento_id FROM servicio WHERE id = :s", s=servicio) != o["departamento_id"]:
         falla("La cama debe ser del departamento al que Admisión envió al paciente.")
     c.asegurar_servicio(servicio)
     c.arranque(servicio)
@@ -560,26 +548,79 @@ def egreso_registrar(c: Ctx, d: dict) -> str:
     c.asegurar_orden(h["id"], f)
     tipo = d.get("tipoEgreso")
     if not tipo:
-        falla("Elige el tipo de egreso.")
+        falla("Elige el tipo de alta.")
+    if tipo == "fallecido":
+        # Menos o más de 48 h: lo decide el sistema con la hora de ingreso, no quien registra.
+        horas = c.valor("SELECT extract(epoch FROM desde_local(:f) - fecha_ingreso) / 3600 FROM hospitalizacion WHERE id = :h", f=f, h=h["id"])
+        tipo = "fallecido_menor_48" if horas < 48 else "fallecido_mayor_48"
     hospitalario = tipo != TRASLADO_NO_INCORPORADO
-    if hospitalario and not d.get("condicion"):
+    if hospitalario and tipo not in TIPOS_ALTA:
+        falla("Elige el tipo de alta.")
+    condicion = "fallecido" if tipo.startswith("fallecido") else d.get("condicion")
+    if hospitalario and not condicion:
         falla("Elige la condición de egreso.")
     if not hospitalario and not texto_de(d.get("destino")):
         falla("Indica el servicio de destino.")
     alta = d.get("altaMedica") or None
     if alta and (not es_fecha_hora(alta) or alta > f):
         falla("La hora del alta médica no puede ser posterior a la salida.")
+    diagnosticos = []
+    if hospitalario:
+        if not c.valor("SELECT EXISTS (SELECT 1 FROM medico WHERE id = :m AND activo)", m=d.get("medicoId") or ""):
+            falla("Elige el médico que dio el alta.")
+        principal = texto_de(d.get("cie10"))
+        if not principal:
+            falla("Elige el diagnóstico de egreso (CIE-10).")
+        diagnosticos = [x for x in dict.fromkeys([principal, *(d.get("secundarios") or [])]) if x]
+        for codigo in diagnosticos:
+            if not c.valor("SELECT EXISTS (SELECT 1 FROM cie10 WHERE codigo = :c AND activo)", c=codigo):
+                falla(f"El código {codigo} no está en el catálogo CIE-10.")
+        paciente = c.uno("SELECT p.sexo, p.fecha_nacimiento FROM hospitalizacion h JOIN paciente p ON p.id = h.paciente_id WHERE h.id = :h", h=h["id"])
+        _validar_cie(principal, {**dict(paciente), "fecha_texto": f})
     m = c.agregar_movimiento(h["id"], "egreso", f, actual["cama_id"], actual["servicio_id"], tipo_egreso=tipo)
     e = c.valor(
-        """INSERT INTO egreso (hospitalizacion_id, movimiento_id, fecha_hora, alta_medica_en, tipo, condicion, destino, servicio_id, medico_id, estado)
-           VALUES (:h, :m, desde_local(:f), desde_local(:alta), :tipo, :cond, NULLIF(:destino, ''), :s, NULLIF(:medico, ''), :estado) RETURNING id""",
-        h=h["id"], m=m, f=f, alta=alta, tipo=tipo, cond=d.get("condicion") if hospitalario else None, destino=texto_de(d.get("destino")),
-        s=actual["servicio_id"], medico=d.get("medicoId") or "", estado="pendiente_hc" if hospitalario else None,
+        """INSERT INTO egreso (hospitalizacion_id, movimiento_id, fecha_hora, alta_medica_en, tipo, condicion, destino, servicio_id, medico_id, estado,
+             completado_en, completado_por)
+           VALUES (:h, :m, desde_local(:f), desde_local(:alta), :tipo, :cond, NULLIF(:destino, ''), :s, NULLIF(:medico, ''), :estado,
+             CASE WHEN :hosp THEN desde_local(:ahora) END, CASE WHEN :hosp THEN :cuenta END) RETURNING id""",
+        h=h["id"], m=m, f=f, alta=alta, tipo=tipo, cond=condicion if hospitalario else None, destino=texto_de(d.get("destino")),
+        s=actual["servicio_id"], medico=(d.get("medicoId") or "") if hospitalario else "", estado="completo" if hospitalario else None,
+        hosp=hospitalario, ahora=c.ahora, cuenta=c.cuenta["id"],
     )
+    for orden, codigo in enumerate(diagnosticos, start=1):
+        c.ejec("INSERT INTO diagnostico_egreso (egreso_id, cie10, principal, orden) VALUES (:e, :c, :p, :o)", e=e, c=codigo, p=orden == 1, o=orden)
     c.ejec("UPDATE hospitalizacion SET estado = 'egresada' WHERE id = :h", h=h["id"])
-    if hospitalario:
-        c.ejec("INSERT INTO control_hc (egreso_id, estado) VALUES (:e, 'pendiente_entrega')", e=e)
     return tipo
+
+
+def egreso_a_traslado(c: Ctx, d: dict) -> str:
+    """Corrige un alta que en realidad fue un traslado. Anula el alta con su motivo
+    (el paciente vuelve a su cama) y registra el traslado: a otra área del sistema
+    queda pendiente de que esa área lo reciba; a un servicio no incorporado, cierra
+    la estancia sin contar como egreso. La pantalla la deja solo en Movimientos del
+    día, para que no sea el camino habitual."""
+    h_id = id_de(d.get("hospitalizacionId"))
+    e = c.egreso_de(h_id)
+    if not e or e["tipo"] == TRASLADO_NO_INCORPORADO:
+        falla("Ese paciente no tiene un alta que corregir.")
+    motivo = texto_de(d.get("motivo"))
+    if not motivo:
+        falla("Escribe el motivo de la corrección.")
+    destino = d.get("servicioDestino")
+    if destino == e["servicio_id"]:
+        falla("El destino debe ser otra área.")
+    incorporado = destino in c.servicios_con_camas()
+    if not incorporado and not texto_de(d.get("destinoNombre")):
+        falla("Elige el área de destino.")
+    cama = c.valor("SELECT cama_id FROM movimiento WHERE id = :m", m=e["movimiento_id"])
+    if c.ocupada(cama):
+        falla("La cama que dejó el paciente ya la ocupa otro. Corrige primero ese ingreso.")
+    movimiento_anular(c, {"movimientoId": e["movimiento_id"], "motivo": f"Era traslado: {motivo}"})
+    if incorporado:
+        traslado_registrar(c, {"hospitalizacionId": h_id, "servicioDestino": destino})
+        return f"{e['servicio_id']} a {destino}: {motivo}"
+    egreso_registrar(c, {"hospitalizacionId": h_id, "tipoEgreso": TRASLADO_NO_INCORPORADO, "destino": d["destinoNombre"], "fechaHora": e["fecha_texto"]})
+    return f"{e['servicio_id']} a {d['destinoNombre']}: {motivo}"
 
 
 def movimiento_anular(c: Ctx, d: dict) -> str:
@@ -599,8 +640,8 @@ def movimiento_anular(c: Ctx, d: dict) -> str:
         falla("Solo se puede anular el último movimiento del paciente.")
     h = c.uno("SELECT * FROM hospitalizacion WHERE id = :h", h=m["hospitalizacion_id"])
     eg = c.egreso_de(h["id"]) if m["tipo"] == "egreso" else None
-    if eg and eg["estado"] and eg["estado"] != "pendiente_hc":
-        falla("Estadística ya trabajó ese egreso.")
+    if eg and eg["estado"] in ("validado", "cerrado"):
+        falla("Estadística ya validó ese egreso.")
     c.ejec(
         """UPDATE movimiento SET anulado = true, motivo_anulacion = :motivo, anulado_en = desde_local(:ahora), anulado_por = :cuenta WHERE id = :m""",
         motivo=motivo, ahora=c.ahora, cuenta=c.cuenta["id"], m=m["id"],
@@ -1046,6 +1087,7 @@ MANEJADORES = {
     "traslado/cancelar": traslado_cancelar,
     "soporte/cambiar": soporte_cambiar,
     "egreso/registrar": egreso_registrar,
+    "egreso/a_traslado": egreso_a_traslado,
     "movimiento/anular": movimiento_anular,
     "cama/bloquear": cama_bloquear,
     "cama/desbloquear": cama_desbloquear,

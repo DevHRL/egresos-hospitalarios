@@ -25,7 +25,7 @@ export const CIE10 = [
   ['N39.0', 'Infección de vías urinarias, sitio no especificado'],
   ['O80', 'Parto único espontáneo'],
   ['R50.9', 'Fiebre, no especificada'],
-].map(([value, nombre]) => ({ value, label: `${value} · ${nombre}` }))
+].map(([value, nombre]) => ({ value, label: `${value} ${nombre}` }))
 
 export const MEDICOS = [
   { value: 'med-1', label: 'Dra. Demo Salazar' },

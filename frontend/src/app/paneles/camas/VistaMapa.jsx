@@ -355,7 +355,7 @@ function Isometrica({ zonas, camas, delArea, caja, general,porCama, esActiva, ar
     foco ? `en ${foco.codigo}` : null,
     `giro ${Math.round(camara.azimut)}°`,
     `${camara.zoom.toFixed(1)}×`,
-  ].filter(Boolean).join(' · ')
+  ].filter(Boolean).join(', ')
 
   return (
     <figure className="figura3d">

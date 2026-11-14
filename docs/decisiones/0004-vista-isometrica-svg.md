@@ -1,4 +1,4 @@
-# 0004 · Plano de camas: datos únicos, vista 2D e isométrica en SVG
+# 0004: Plano de camas: datos únicos, vista 2D e isométrica en SVG
 
 - **Estado:** Adoptada (editor construido en `frontend/src/app/paneles/plano/`)
 - **Fecha:** 2026-10-27 (revisada)

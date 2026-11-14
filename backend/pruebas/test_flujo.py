@@ -11,6 +11,10 @@ from app.tiempo import dias_entre
 AHORA = "2026-11-08T10:30"
 MED = "medicina"
 INT = "medicina-intermedios"
+# El alta completa que registra el área (decisión 0010).
+ALTA = {"tipoEgreso": "alta_medica", "condicion": "curado", "cie10": "J18.9", "medicoId": "med-1"}
+# Quién designa: la enfermería del área de la cama.
+AREA_DE_CAMA = {"a": ("medicina-a", "medicina.a"), "b": ("medicina-b", "medicina.b"), "i": (INT, "medicina.int"), "u": ("cuidados-criticos", "uci"), "q": ("quemados", "quemados")}
 
 
 def valor(c, sql, **p):
@@ -46,44 +50,45 @@ def hosp_ultima(c):
 
 
 def ordenar(c, n=1, ahora=AHORA, **extra):
-    datos = {"paciente": paciente(n), "origen": "consulta_externa", "departamentoId": MED, **extra}
+    datos = {"paciente": paciente(n), "origen": "consulta_externa", "servicioId": "medicina-b", "medicoOrdena": "Dra. Demo Salazar", **extra}
     hacer(c, "admision", "orden/registrar", ahora=ahora, **datos)
     return orden_ultima(c)
 
 
 def designar(c, orden, cama="cama-b-01", ahora=AHORA, fecha=AHORA):
-    hacer(c, "dep.medicina", "ingreso/confirmar", ahora=ahora, ordenId=orden, camaId=cama, fechaHora=fecha)
+    hacer(c, AREA_DE_CAMA[cama[5]][1], "ingreso/confirmar", ahora=ahora, ordenId=orden, camaId=cama, fechaHora=fecha)
 
 
 def ingresar(c, n=1, cama="cama-b-01"):
-    designar(c, ordenar(c, n), cama)
+    designar(c, ordenar(c, n, servicioId=AREA_DE_CAMA[cama[5]][0]), cama)
     return hosp_ultima(c)
 
 
-def test_admision_envia_al_departamento_y_este_designa_la_cama(conn):
-    o = ordenar(conn)
+def test_admision_envia_al_area_y_esta_designa_la_cama(conn):
+    o = ordenar(conn, servicioId=INT)
     assert valor(conn, "SELECT departamento_id FROM orden_hospitalizacion WHERE id = :o", o=o) == MED
-    assert valor(conn, "SELECT servicio_id FROM orden_hospitalizacion WHERE id = :o", o=o) is None
-    for quien in ("admision", "medicina.b", "medicina.int", "estadistica", "mantenimiento"):
-        falla(conn, "permiso|designa", quien, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
-    for unidad in ("uci", "quemados"):
-        falla(conn, "designa", unidad, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
+    assert valor(conn, "SELECT servicio_id FROM orden_hospitalizacion WHERE id = :o", o=o) == INT
+    for quien in ("admision", "dep.medicina", "estadistica", "mantenimiento", "control.camas"):
+        falla(conn, "permiso", quien, "ingreso/confirmar", ordenId=o, camaId="cama-i-04", fechaHora=AHORA)
+    for quien in ("medicina.b", "uci"):
+        falla(conn, "área", quien, "ingreso/confirmar", ordenId=o, camaId="cama-b-01", fechaHora=AHORA)
     designar(conn, o, "cama-i-04")
     assert valor(conn, "SELECT estado FROM orden_hospitalizacion WHERE id = :o", o=o) == "ingresada"
-    assert valor(conn, "SELECT servicio_id FROM orden_hospitalizacion WHERE id = :o", o=o) == INT
     assert valor(conn, "SELECT servicio_id FROM ocupacion_cama WHERE cama_id = 'cama-i-04' AND hasta IS NULL") == INT
 
 
-def test_la_orden_va_a_un_departamento_incorporado(conn):
-    falla(conn, "departamento", "admision", "orden/registrar", paciente=paciente(1), origen="consulta_externa", departamentoId="cirugia")
-    falla(conn, "departamento", "admision", "orden/registrar", paciente=paciente(1), origen="consulta_externa", servicioId="medicina-b")
+def test_la_orden_va_a_un_area_incorporada_con_su_medico(conn):
+    falla(conn, "área", "admision", "orden/registrar", paciente=paciente(1), origen="consulta_externa", servicioId="cirugia", medicoOrdena="Dra. Demo Salazar")
+    falla(conn, "área", "admision", "orden/registrar", paciente=paciente(1), origen="consulta_externa", departamentoId=MED, medicoOrdena="Dra. Demo Salazar")
+    falla(conn, "médico", "admision", "orden/registrar", paciente=paciente(1), origen="consulta_externa", servicioId="medicina-b")
 
 
 def test_el_piso_controla_al_paciente_y_el_departamento_solo_mira(conn):
     h = ingresar(conn, cama="cama-i-04")
     falla(conn, "permiso", "dep.medicina", "soporte/cambiar", hospitalizacionId=h, soporte="o2", fechaHora=AHORA)
     falla(conn, "permiso", "dep.medicina", "traslado/registrar", hospitalizacionId=h, servicioDestino="medicina-b")
-    falla(conn, "permiso", "estadistica", "egreso/registrar", hospitalizacionId=h, fechaHora=AHORA, tipoEgreso="alta_medica", condicion="curado")
+    falla(conn, "permiso", "estadistica", "egreso/registrar", hospitalizacionId=h, fechaHora=AHORA, **ALTA)
+    falla(conn, "permiso", "dep.medicina", "egreso/registrar", hospitalizacionId=h, fechaHora=AHORA, **ALTA)
     falla(conn, "su servicio", "medicina.b", "soporte/cambiar", hospitalizacionId=h, soporte="o2", fechaHora=AHORA)
     hacer(conn, "medicina.int", "soporte/cambiar", hospitalizacionId=h, soporte="o2", fechaHora=AHORA)
     assert valor(conn, "SELECT estado FROM v_estado_cama WHERE cama_id = 'cama-i-04'") == "ocupada_o2"
@@ -92,7 +97,7 @@ def test_el_piso_controla_al_paciente_y_el_departamento_solo_mira(conn):
 def test_salida_y_entrada_en_el_mismo_minuto(conn):
     h = ingresar(conn)
     salida = "2026-11-08T11:00"
-    hacer(conn, "medicina.b", "egreso/registrar", ahora=salida, hospitalizacionId=h, fechaHora=salida, tipoEgreso="alta_medica", condicion="curado")
+    hacer(conn, "medicina.b", "egreso/registrar", ahora=salida, hospitalizacionId=h, fechaHora=salida, **ALTA)
     designar(conn, ordenar(conn, 2, ahora=salida), "cama-b-01", ahora=salida, fecha=salida)
     assert valor(conn, "SELECT count(*) FROM ocupacion_cama WHERE cama_id = 'cama-b-01'") == 2
 
@@ -102,7 +107,7 @@ def test_traslado_entre_pisos_lo_confirma_el_destino(conn):
     falla(conn, "solo se registra en UCI", "medicina.b", "soporte/cambiar", hospitalizacionId=h, soporte="vm", fechaHora=AHORA)
     hacer(conn, "medicina.b", "traslado/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, servicioDestino=INT)
     t = valor(conn, "SELECT max(id) FROM traslado")
-    falla(conn, "Cancela o confirma", "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", tipoEgreso="alta_medica", condicion="curado")
+    falla(conn, "Cancela o confirma", "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", **ALTA)
     falla(conn, "su servicio", "medicina.b", "traslado/confirmar", ahora="2026-11-08T11:30", trasladoId=t, camaId="cama-i-04", fechaHora="2026-11-08T11:30")
     hacer(conn, "medicina.int", "traslado/confirmar", ahora="2026-11-08T11:30", trasladoId=t, camaId="cama-i-04", fechaHora="2026-11-08T11:30")
     q = conn.execute(text("SELECT traslados_entrada, pacientes_corte FROM cuadre_censo(:s, '2026-11-08')"), {"s": INT}).first()
@@ -110,14 +115,14 @@ def test_traslado_entre_pisos_lo_confirma_el_destino(conn):
     assert valor(conn, "SELECT traslados_salida FROM cuadre_censo('medicina-b', '2026-11-08')") == 1
 
 
-def test_en_uci_y_quemados_designa_la_propia_unidad(conn):
-    """Sin cuenta de departamento, la enfermería de la unidad designa la cama (decisión 0008)."""
-    o = ordenar(conn, departamentoId="uci-medicina")
-    for quien in ("dep.medicina", "medicina.b", "quemados"):
-        falla(conn, "permiso|designa|servicio", quien, "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
+def test_uci_y_quemados_designan_como_cualquier_area(conn):
+    o = ordenar(conn, servicioId="cuidados-criticos")
+    falla(conn, "permiso", "dep.medicina", "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
+    for quien in ("medicina.b", "quemados"):
+        falla(conn, "servicio", quien, "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
     hacer(conn, "uci", "ingreso/confirmar", ordenId=o, camaId="cama-u-01", fechaHora=AHORA)
     assert valor(conn, "SELECT servicio_id FROM ocupacion_cama WHERE cama_id = 'cama-u-01' AND hasta IS NULL") == "cuidados-criticos"
-    o = ordenar(conn, 2, departamentoId="quemados")
+    o = ordenar(conn, 2, servicioId="quemados")
     hacer(conn, "quemados", "ingreso/confirmar", ordenId=o, camaId="cama-q-06", fechaHora=AHORA)
     assert valor(conn, "SELECT tipo FROM cama WHERE id = 'cama-q-06'") == "cuna"
 
@@ -165,33 +170,74 @@ def test_anular_ingreso_devuelve_la_orden(conn):
 
 def test_egreso_alta_medica_y_anulacion(conn):
     h = ingresar(conn)
-    falla(conn, "alta médica", "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", tipoEgreso="alta_medica", condicion="curado", altaMedica="2026-11-08T12:30")
-    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", tipoEgreso="alta_medica", condicion="curado", altaMedica="2026-11-08T10:45")
+    falla(conn, "alta médica", "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", **ALTA, altaMedica="2026-11-08T12:30")
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", **ALTA, altaMedica="2026-11-08T10:45")
     assert valor(conn, "SELECT texto_local(alta_medica_en) FROM egreso WHERE hospitalizacion_id = :h", h=h) == "2026-11-08T10:45"
-    assert valor(conn, "SELECT estado FROM control_hc ORDER BY egreso_id DESC LIMIT 1") == "pendiente_entrega"
+    assert valor(conn, "SELECT estado FROM egreso WHERE hospitalizacion_id = :h", h=h) == "completo"
     hacer(conn, "medicina.b", "movimiento/anular", ahora="2026-11-08T12:10", movimientoId=valor(conn, "SELECT max(id) FROM movimiento"), motivo="Aún no sale")
     assert valor(conn, "SELECT estado FROM hospitalizacion WHERE id = :h", h=h) == "abierta"
     assert valor(conn, "SELECT count(*) FROM egreso WHERE hospitalizacion_id = :h AND NOT anulado", h=h) == 0
 
 
-def test_completado_observado_y_validado(conn):
+def test_el_area_registra_el_alta_completa(conn):
     h = ingresar(conn)
-    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", tipoEgreso="alta_medica", condicion="curado")
-    hacer(conn, "estadistica", "hc/recibir", ahora="2026-11-08T12:10", hc="555001")
-    hacer(conn, "estadistica", "egreso/completar", ahora="2026-11-08T12:20", hospitalizacionId=h, cie10="J18.9", medicoId="med-1", secundarios=["I10"])
-    hacer(conn, "estadistica", "egreso/observar", ahora="2026-11-08T12:30", hospitalizacionId=h, motivo="Revisar CIE-10")
-    hacer(conn, "estadistica", "egreso/completar", ahora="2026-11-08T12:40", hospitalizacionId=h, cie10="I10", medicoId="med-1")
-    assert valor(conn, "SELECT count(*) FROM diagnostico_egreso d JOIN egreso e ON e.id = d.egreso_id WHERE e.hospitalizacion_id = :h", h=h) == 1
+    momento = {"ahora": "2026-11-08T12:00", "hospitalizacionId": h, "fechaHora": "2026-11-08T12:00"}
+    falla(conn, "CIE-10", "medicina.b", "egreso/registrar", **momento, **{**ALTA, "cie10": ""})
+    falla(conn, "médico", "medicina.b", "egreso/registrar", **momento, **{**ALTA, "medicoId": ""})
+    falla(conn, "catálogo", "medicina.b", "egreso/registrar", **momento, **{**ALTA, "cie10": "Z99.99"})
+    hacer(conn, "medicina.b", "egreso/registrar", **momento, **ALTA, secundarios=["I10"])
+    e = conn.execute(text("SELECT estado, completado_por FROM egreso WHERE hospitalizacion_id = :h AND NOT anulado"), {"h": h}).first()
+    assert (e.estado, e.completado_por) == ("completo", "medicina.b")
+    assert valor(conn, "SELECT count(*) FROM diagnostico_egreso d JOIN egreso e ON e.id = d.egreso_id WHERE e.hospitalizacion_id = :h", h=h) == 2
+    assert valor(conn, "SELECT count(*) FROM control_hc c JOIN egreso e ON e.id = c.egreso_id WHERE e.hospitalizacion_id = :h", h=h) == 0
+    conn.execute(text("SELECT refrescar_indicadores()"))
+    assert valor(conn, "SELECT e FROM mv_indicadores_mes WHERE base = 'mapeo' AND servicio_id = 'medicina-b' AND mes = '2026-11-01'") >= 1
     hacer(conn, "estadistica", "egreso/validar", ahora="2026-11-08T12:50", hospitalizacionId=h)
-    hacer(conn, "estadistica", "hc/devolver", ahora="2026-11-08T13:00", hospitalizacionId=h)
-    assert valor(conn, "SELECT estado FROM control_hc ORDER BY egreso_id DESC LIMIT 1") == "devuelta"
+    falla(conn, "validó", "medicina.b", "movimiento/anular", ahora="2026-11-08T13:00", movimientoId=valor(conn, "SELECT max(id) FROM movimiento WHERE hospitalizacion_id = :h", h=h), motivo="x")
+
+
+def test_fallecido_antes_de_48_horas_lo_decide_el_sistema(conn):
+    h = ingresar(conn)
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", **{**ALTA, "tipoEgreso": "fallecido", "condicion": ""})
+    e = conn.execute(text("SELECT tipo, condicion FROM egreso WHERE hospitalizacion_id = :h"), {"h": h}).first()
+    assert (e.tipo, e.condicion) == ("fallecido_menor_48", "fallecido")
 
 
 def test_cie_incompatible(conn):
     designar(conn, ordenar(conn, 2, paciente=paciente(2, sexo="M")))
     h = hosp_ultima(conn)
-    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", tipoEgreso="alta_medica", condicion="curado")
-    falla(conn, "obstétrico", "estadistica", "egreso/completar", ahora="2026-11-08T12:20", hospitalizacionId=h, cie10="O80", medicoId="med-1")
+    falla(conn, "obstétrico", "medicina.b", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", **{**ALTA, "cie10": "O80"})
+
+
+def test_alta_que_era_traslado_se_corrige(conn):
+    h = ingresar(conn)
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", **ALTA)
+    falla(conn, "motivo", "medicina.b", "egreso/a_traslado", ahora="2026-11-08T11:10", hospitalizacionId=h, servicioDestino=INT, motivo="")
+    falla(conn, "permiso", "dep.medicina", "egreso/a_traslado", ahora="2026-11-08T11:10", hospitalizacionId=h, servicioDestino=INT, motivo="x")
+    hacer(conn, "medicina.b", "egreso/a_traslado", ahora="2026-11-08T11:10", hospitalizacionId=h, servicioDestino=INT, motivo="Se marcó alta por error")
+    assert valor(conn, "SELECT estado FROM hospitalizacion WHERE id = :h", h=h) == "abierta"
+    assert valor(conn, "SELECT count(*) FROM egreso WHERE hospitalizacion_id = :h AND NOT anulado", h=h) == 0
+    assert valor(conn, "SELECT cama_id FROM ocupacion_cama WHERE hospitalizacion_id = :h AND hasta IS NULL", h=h) == "cama-b-01"
+    t = valor(conn, "SELECT max(id) FROM traslado WHERE estado = 'pendiente'")
+    hacer(conn, "medicina.int", "traslado/confirmar", ahora="2026-11-08T11:30", trasladoId=t, camaId="cama-i-04", fechaHora="2026-11-08T11:30")
+    q = conn.execute(text("SELECT egresos, traslados_salida FROM cuadre_censo('medicina-b', '2026-11-08')")).first()
+    assert q.traslados_salida >= 1
+    assert valor(conn, "SELECT descripcion FROM bitacora ORDER BY id DESC OFFSET 1 LIMIT 1") == "Corrigió un alta que era traslado"
+
+
+def test_alta_que_era_traslado_a_otro_departamento(conn):
+    h = ingresar(conn)
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", **ALTA)
+    hacer(conn, "medicina.b", "egreso/a_traslado", ahora="2026-11-08T11:10", hospitalizacionId=h, servicioDestino="cirugia", destinoNombre="Cirugía General (Cirugía)", motivo="Pasó a Cirugía")
+    e = conn.execute(text("SELECT tipo, destino, estado FROM egreso WHERE hospitalizacion_id = :h AND NOT anulado"), {"h": h}).first()
+    assert (e.tipo, e.destino, e.estado) == ("traslado_no_incorporado", "Cirugía General (Cirugía)", None)
+
+
+def test_no_se_corrige_si_la_cama_ya_se_ocupo(conn):
+    h = ingresar(conn)
+    hacer(conn, "medicina.b", "egreso/registrar", ahora="2026-11-08T11:00", hospitalizacionId=h, fechaHora="2026-11-08T11:00", **ALTA)
+    designar(conn, ordenar(conn, 2, ahora="2026-11-08T11:05"), "cama-b-01", ahora="2026-11-08T11:05", fecha="2026-11-08T11:05")
+    falla(conn, "ya la ocupa", "medicina.b", "egreso/a_traslado", ahora="2026-11-08T11:10", hospitalizacionId=h, servicioDestino=INT, motivo="x")
 
 
 def test_traslado_a_servicio_no_incorporado(conn):
@@ -210,12 +256,12 @@ def test_llegada_de_otro_servicio_cuenta_como_traslado(conn):
 
 
 def test_recien_nacido_y_paciente_sin_identificar(conn):
-    hacer(conn, "admision", "orden/registrar", paciente={"hc": "888001", "tipoDocumento": "sin_documento", "nombres": "NN Varón", "sexo": "M"}, origen="emergencia", enviadaPor="Enfermería de Emergencia", departamentoId=MED)
+    hacer(conn, "admision", "orden/registrar", paciente={"hc": "888001", "tipoDocumento": "sin_documento", "nombres": "NN Varón", "sexo": "M"}, origen="emergencia", enviadaPor="Enfermería de Emergencia", servicioId="medicina-b", medicoOrdena="Dra. Demo Salazar")
     assert valor(conn, "SELECT fecha_nacimiento FROM paciente WHERE n_hc = '888001'") is None
     madre = valor(conn, "SELECT n_hc FROM paciente ORDER BY id LIMIT 1")
-    hacer(conn, "admision", "orden/registrar", paciente={"hc": "888002", "tipoDocumento": "sin_documento", "nombres": "RN de Prueba", "sexo": "F", "nacimiento": "2026-11-08", "hcMadre": madre}, origen="consulta_externa", departamentoId=MED)
+    hacer(conn, "admision", "orden/registrar", paciente={"hc": "888002", "tipoDocumento": "sin_documento", "nombres": "RN de Prueba", "sexo": "F", "nacimiento": "2026-11-08", "hcMadre": madre}, origen="consulta_externa", servicioId="medicina-b", medicoOrdena="Dra. Demo Salazar")
     assert valor(conn, "SELECT madre_id FROM paciente WHERE n_hc = '888002'") is not None
-    falla(conn, "fecha de nacimiento", "admision", "orden/registrar", paciente={"hc": "888003", "tipoDocumento": "ce", "dni": "X1", "nombres": "Sin Fecha", "sexo": "F"}, origen="consulta_externa", departamentoId=MED)
+    falla(conn, "fecha de nacimiento", "admision", "orden/registrar", paciente={"hc": "888003", "tipoDocumento": "ce", "dni": "X1", "nombres": "Sin Fecha", "sexo": "F"}, origen="consulta_externa", servicioId="medicina-b", medicoOrdena="Dra. Demo Salazar")
 
 
 def arrancar_hoy(c, servicio=INT):
@@ -240,8 +286,7 @@ def test_la_fecha_estimada_no_cuenta_en_el_promedio(conn):
     arrancar_hoy(conn)
     hacer(conn, "medicina.int", "ingreso/previo", paciente=paciente(4), camaId="cama-i-04", fechaHora="")
     h = hosp_ultima(conn)
-    hacer(conn, "medicina.int", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", tipoEgreso="alta_medica", condicion="curado")
-    hacer(conn, "estadistica", "egreso/completar", ahora="2026-11-08T12:20", hospitalizacionId=h, cie10="I10", medicoId="med-1")
+    hacer(conn, "medicina.int", "egreso/registrar", ahora="2026-11-08T12:00", hospitalizacionId=h, fechaHora="2026-11-08T12:00", **ALTA)
     hacer(conn, "estadistica", "egreso/validar", ahora="2026-11-08T12:30", hospitalizacionId=h)
     conn.execute(text("SELECT refrescar_indicadores()"))
     assert tuple(conn.execute(text("SELECT e, f FROM mv_indicadores_mes WHERE base = 'mapeo' AND servicio_id = :s"), {"s": INT}).first()) == (1, None)
@@ -379,13 +424,16 @@ def test_renoxi_marcar(conn):
     falla(conn, "permiso", "medicina.b", "renoxi/marcar", dia="2026-11-07")
     hacer(conn, "estadistica", "renoxi/marcar", dia="2026-11-07")
     assert valor(conn, "SELECT cuenta_id FROM renoxi_carga WHERE dia = '2026-11-07'") == "estadistica"
+    hacer(conn, "control.camas", "renoxi/marcar", dia="2026-11-06")
+    assert valor(conn, "SELECT cuenta_id FROM renoxi_carga WHERE dia = '2026-11-06'") == "control.camas"
+    falla(conn, "permiso", "control.camas", "egreso/validar", hospitalizacionId=1)
 
 
 def test_cada_accion_deja_bitacora(conn):
     antes = valor(conn, "SELECT count(*) FROM bitacora")
     ingresar(conn)
     assert valor(conn, "SELECT count(*) FROM bitacora") == antes + 2
-    assert valor(conn, "SELECT cuenta_id FROM bitacora ORDER BY id DESC LIMIT 1") == "dep.medicina"
+    assert valor(conn, "SELECT cuenta_id FROM bitacora ORDER BY id DESC LIMIT 1") == "medicina.b"
 
 
 def test_plano_publicado_da_de_baja_sin_borrar(conn):

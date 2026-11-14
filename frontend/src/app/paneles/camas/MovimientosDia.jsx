@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Badge, Button, Card, DataTable, Input, PageActions, Stack } from '@hrl/core-ui'
-import { camaPorId, censoEditable, etiquetaEgreso, hospitalizacionPorId, movimientosDe, pacientePorId } from '../../dominio/consultas.js'
+import { camaPorId, censoEditable, esEgresoHospitalario, etiquetaEgreso, hospitalizacionPorId, movimientosDe, pacientePorId } from '../../dominio/consultas.js'
 import { diaDe, horaDe, verFechaHora } from '../../dominio/tiempo.js'
 import { DialogoAccion, diaOperativo, nombreServicio, useApp, useEnvio } from '../comun.jsx'
+import { DialogoAltaATraslado } from './Dialogos.jsx'
 
 const TIPOS = { ingreso: 'Ingreso', traslado: 'Traslado', soporte: 'Soporte', egreso: 'Egreso' }
 
@@ -29,6 +30,7 @@ const FILAS_EN_BLANCO = Array.from({ length: 16 }, (_, i) => ({ i }))
 export function MovimientosDia() {
   const { estado, cuenta } = useApp()
   const [anular, setAnular] = useState(null)
+  const [corregir, setCorregir] = useState(null)
   const dia = diaOperativo(estado.ahora)
   const propios = (m) => cuenta.servicios.includes(m.servicioId) || cuenta.servicios.includes(m.servicioOrigen)
   const filas = estado.movimientos.filter((m) => diaDe(m.fechaHora) === dia && propios(m)).sort((a, b) => (a.fechaHora === b.fechaHora ? b.seq - a.seq : a.fechaHora < b.fechaHora ? 1 : -1))
@@ -51,12 +53,17 @@ export function MovimientosDia() {
             { key: 'paciente', label: 'Paciente', render: (m) => pacientePorId(estado, hospitalizacionPorId(estado, m.hospitalizacionId).pacienteId).nombres },
             { key: 'detalle', label: 'Detalle', render: (m) => (m.anulado ? m.motivoAnulacion : detalle(estado, m)) },
             { key: 'registrado', label: 'Digitado', width: 150, render: (m) => verFechaHora(m.registradoEn) },
-            { key: 'accion', label: '', width: 90, align: 'right', render: (m) => (anulable(m) && cuenta.rol === 'enfermeria' ? <Button size="sm" tone="ghost" onClick={() => setAnular(m)}>Anular</Button> : null) },
+            { key: 'accion', label: '', width: 200, align: 'right', render: (m) => (anulable(m) && cuenta.rol === 'enfermeria' ? (
+              <Stack direction="row" gap={1} justify="end">
+                {m.tipo === 'egreso' && esEgresoHospitalario(m.tipoEgreso) && <Button size="sm" tone="link" onClick={() => setCorregir(m.hospitalizacionId)}>Era traslado</Button>}
+                <Button size="sm" tone="ghost" onClick={() => setAnular(m)}>Anular</Button>
+              </Stack>
+            ) : null) },
           ]}
         />
       </Card>
       <div className="solo-impresion zona-impresion">
-        <Card title={`Hoja de movimientos · ${cuenta.servicios.map(nombreServicio).join(', ')}`} subtitle={`Para anotar a mano cuando no hay tiempo de digitar. Fecha: ____ / ____ / ________`}>
+        <Card title={`Hoja de movimientos de ${cuenta.servicios.map(nombreServicio).join(', ')}`} subtitle={`Para anotar a mano cuando no hay tiempo de digitar. Fecha: ____ / ____ / ________`}>
           <DataTable
             rowKey={(f) => f.i}
             rows={FILAS_EN_BLANCO}
@@ -74,6 +81,7 @@ export function MovimientosDia() {
         </Card>
       </div>
       {anular && <DialogoAnular movimiento={anular} onCerrar={() => setAnular(null)} />}
+      {corregir && <DialogoAltaATraslado hospitalizacionId={corregir} onCerrar={() => setCorregir(null)} />}
     </Stack></div>
   )
 }

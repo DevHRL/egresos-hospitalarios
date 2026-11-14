@@ -12,7 +12,6 @@ import { MapaCamas } from './paneles/camas/MapaCamas.jsx'
 import { MovimientosDia } from './paneles/camas/MovimientosDia.jsx'
 import { CensoDiario } from './paneles/censo/CensoDiario.jsx'
 import { Recepcion } from './paneles/estadistica/Recepcion.jsx'
-import { Completado } from './paneles/estadistica/Completado.jsx'
 import { Validacion } from './paneles/estadistica/Validacion.jsx'
 import { Consolidado, Indicadores, Renoxi, Tablero } from './paneles/reportes/Reportes.jsx'
 import { OrdenesCama } from './paneles/mantenimiento/OrdenesCama.jsx'
@@ -24,7 +23,6 @@ const PANELES = {
   movimientos: MovimientosDia,
   censo: CensoDiario,
   recepcion: Recepcion,
-  completado: Completado,
   validacion: Validacion,
   consolidado: Consolidado,
   renoxi: Renoxi,
@@ -41,11 +39,11 @@ function pendientes(estado, cuenta) {
   const camasDe = (o) => cuenta.servicios.includes(estado.camas.find((c) => c.id === o.camaId).servicioId)
   return {
     ordenes: cuenta.rol === 'admision' ? estado.ordenes.filter((o) => o.estado === 'pendiente').length : 0,
-    mapa: (cuenta.designa?.length ? ordenesPendientes(estado, cuenta.servicios).length : 0)
-      + (cuenta.rol === 'enfermeria'
-        ? estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)).length + estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && camasDe(o)).length
-        : 0),
-    completado: egresos.filter((h) => ['pendiente_hc', 'observado'].includes(h.egreso.estado)).length,
+    mapa: cuenta.rol === 'enfermeria'
+      ? ordenesPendientes(estado, cuenta.servicios).length
+        + estado.traslados.filter((t) => t.estado === 'pendiente' && cuenta.servicios.includes(t.servicioDestino)).length
+        + estado.ordenesCama.filter((o) => o.estado === 'por_recibir' && camasDe(o)).length
+      : 0,
     validacion: egresos.filter((h) => h.egreso.estado === 'completo').length,
     mantenimiento: estado.ordenesCama.filter((o) => ['pendiente_retiro', 'en_reparacion', 'lista_entrega'].includes(o.estado)).length,
   }

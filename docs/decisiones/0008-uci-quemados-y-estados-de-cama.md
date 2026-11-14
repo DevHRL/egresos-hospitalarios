@@ -1,4 +1,4 @@
-# 0008 · UCI y Quemados en el piso 2, y cuatro estados de cama
+# 0008: UCI y Quemados en el piso 2, y cuatro estados de cama
 
 - **Estado:** Adoptada
 - **Fecha:** 2026-11-12

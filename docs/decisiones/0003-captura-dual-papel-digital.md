@@ -1,4 +1,4 @@
-# 0003 · Captura dual: papel transcrito o digital por servicio
+# 0003: Captura dual: papel transcrito o digital por servicio
 
 - **Estado:** Propuesta
 - **Fecha:** 2026-10-25

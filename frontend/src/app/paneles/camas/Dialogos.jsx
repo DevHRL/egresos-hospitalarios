@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Card, Input, SegmentedControl, Stack } from '@hrl/core-ui'
-import { CONDICIONES_EGRESO, ESTADOS_CAMA_MAPA, ESTADOS_ORDEN_CAMA, MARCA_SOPORTE, ORIGENES, SOPORTES, TIPOS_EGRESO, TRASLADO_NO_INCORPORADO, estadosDeCamas, etiqueta, etiquetaEgreso, hospitalizacionPorId, movimientosDe, pacientePorId, posicionActual, serviciosConCamas } from '../../dominio/consultas.js'
+import { CONDICIONES_EGRESO, ESTADOS_CAMA_MAPA, ESTADOS_ORDEN_CAMA, MARCA_SOPORTE, ORIGENES, SOPORTES, TRASLADO_NO_INCORPORADO, estadosDeCamas, etiqueta, etiquetaEgreso, hospitalizacionPorId, movimientosDe, pacientePorId, posicionActual, serviciosConCamas, trasladoPendienteDe } from '../../dominio/consultas.js'
 import { diaDe, edad, estancia, verFechaHora } from '../../dominio/tiempo.js'
-import { MEDICOS } from '../../datos/clinicos.js'
+import { CIE10, MEDICOS } from '../../datos/clinicos.js'
 import { buscarEnPadron, ordenesPendientes } from '../../datos/admision.js'
 import { DEPARTAMENTOS, servicioPorId } from '../../datos/catalogo.js'
 import { CampoFechaHora, DialogoAccion, ListaDatos, nombreDepartamento, nombreServicio, opcionesServicio, useApp, useEnvio } from '../comun.jsx'
@@ -12,7 +12,7 @@ const departamentoDeServicio = (id) => servicioPorId(id)?.departamento.id
 const camasLibres = (estado, servicioId) =>
   estadosDeCamas(estado, [servicioId])
     .filter((x) => x.libre)
-    .map((x) => ({ value: x.cama.id, label: `${x.cama.codigo} · ${x.cama.habitacion}${x.falla ? ' (falla reportada)' : ''}` }))
+    .map((x) => ({ value: x.cama.id, label: `${x.cama.codigo}, ${x.cama.habitacion}${x.falla ? ' (falla reportada)' : ''}` }))
 
 /* Camas libres de varias áreas, agrupadas por área y ordenadas por habitación. */
 const gruposCamasLibres = (estado, servicios) =>
@@ -21,15 +21,35 @@ const gruposCamasLibres = (estado, servicios) =>
 
 const VACIO = { value: '', label: 'Elige…' }
 
-function datosPaciente(estado, pacienteId) {
-  const p = pacientePorId(estado, pacienteId)
-  return [['Paciente', p.nombres], ['N° de HC', p.hc], ['DNI', p.dni], ['Edad y sexo', `${edad(p.nacimiento, estado.ahora)} años · ${p.sexo}`]]
+/* Pacientes hospitalizados ahora en esas áreas y sin traslado pendiente: los
+   únicos a quienes el área puede dar de alta o trasladar. Se eligen de la
+   lista, no se escriben. */
+function pacientesPresentes(estado, servicios) {
+  return estado.hospitalizaciones
+    .filter((h) => !h.anulada && !h.egreso && !trasladoPendienteDe(estado, h.id))
+    .map((h) => ({ h, pos: posicionActual(estado, h.id) }))
+    .filter((x) => x.pos && servicios.includes(x.pos.servicioId))
+    .map(({ h, pos }) => {
+      const p = pacientePorId(estado, h.pacienteId)
+      const cama = estado.camas.find((c) => c.id === pos.camaId)?.codigo ?? ''
+      return { value: h.id, label: `${cama}, ${p.nombres}, HC ${p.hc}`, cama }
+    })
+    .sort((a, b) => a.cama.localeCompare(b.cama, 'es', { numeric: true }))
 }
 
-/* Quien designa (la cuenta del departamento o, en UCI y Quemados, la unidad)
-   elige habitación y cama al paciente que envió Admisión. La cama define el
-   área y desde ese momento el piso controla al paciente. Se abre desde la orden (eligiendo cama) o desde
-   una cama libre del plano (eligiendo paciente). */
+function CampoPaciente({ value, onChange }) {
+  const { estado, cuenta } = useApp()
+  return <Input label="Paciente" required kind="select" info="Solo los pacientes hospitalizados ahora en el área." value={value} onChange={(e) => onChange(e.target.value)} options={[VACIO, ...pacientesPresentes(estado, cuenta.servicios)]} />
+}
+
+function datosPaciente(estado, pacienteId) {
+  const p = pacientePorId(estado, pacienteId)
+  return [['Paciente', p.nombres], ['N° de HC', p.hc], ['DNI', p.dni], ['Edad y sexo', `${edad(p.nacimiento, estado.ahora)} años, ${p.sexo}`]]
+}
+
+/* El área designa habitación y cama al paciente que le envió Admisión y desde
+   ese momento lo controla. Se abre desde la orden (eligiendo cama) o desde una
+   cama libre del plano (eligiendo paciente). */
 export function DialogoIngreso({ ordenId: ordenInicial, camaId: camaInicial, onCerrar }) {
   const { estado, cuenta } = useApp()
   const { error, enviar } = useEnvio(onCerrar)
@@ -37,32 +57,31 @@ export function DialogoIngreso({ ordenId: ordenInicial, camaId: camaInicial, onC
   const [camaId, setCamaId] = useState(camaInicial ?? '')
   const [fechaHora, setFechaHora] = useState(estado.ahora)
   const cama = estado.camas.find((c) => c.id === camaId)
-  const pendientes = ordenesPendientes(estado, cuenta.servicios)
+  const pendientes = ordenesPendientes(estado, camaInicial ? [cama.servicioId] : cuenta.servicios)
   const orden = estado.ordenes.find((o) => o.id === ordenId)
-  const grupos = gruposCamasLibres(estado, cuenta.servicios)
+  const grupos = gruposCamasLibres(estado, orden ? [orden.servicioId] : cuenta.servicios)
   return (
     <DialogoAccion
       titulo="Designar habitación y cama"
-      subtitulo="Admisión envió al paciente. La cama que elijas define el piso que lo recibe y lo controla desde ahora."
+      subtitulo="Admisión envió al paciente a esta área. Desde que confirmas, el área lo controla."
       textoConfirmar="Designar e ingresar"
       onCerrar={onCerrar}
       error={error}
-      onConfirmar={() => enviar('ingreso/confirmar', { ordenId, camaId, fechaHora }, `Ingreso registrado. ${cama ? nombreServicio(cama.servicioId) : 'El piso'} ya controla al paciente.`)}
+      onConfirmar={() => enviar('ingreso/confirmar', { ordenId, camaId, fechaHora }, `Ingreso registrado${cama ? ` en la cama ${cama.codigo}` : ''}.`)}
     >
       {!ordenInicial && (
-        <Input label="Paciente enviado por Admisión" kind="select" value={ordenId} onChange={(e) => setOrdenId(e.target.value)} options={[VACIO, ...pendientes.map((o) => ({ value: o.id, label: `${pacientePorId(estado, o.pacienteId).nombres} · ${etiqueta(ORIGENES, o.origen)}` }))]} />
+        <Input label="Paciente enviado por Admisión" required kind="select" value={ordenId} onChange={(e) => setOrdenId(e.target.value)} options={[VACIO, ...pendientes.map((o) => ({ value: o.id, label: `${pacientePorId(estado, o.pacienteId).nombres}, ${etiqueta(ORIGENES, o.origen)}` }))]} />
       )}
       {orden && (
-        <ListaDatos datos={[...datosPaciente(estado, orden.pacienteId), ['Origen', etiqueta(ORIGENES, orden.origen)], ['Departamento', nombreDepartamento(orden.departamentoId)], ['Orden de Admisión', verFechaHora(orden.fechaHora)], ['Diagnóstico de ingreso', orden.diagnosticoIngreso || null]]} />
+        <ListaDatos datos={[...datosPaciente(estado, orden.pacienteId), ['Origen', etiqueta(ORIGENES, orden.origen)], ['Área', nombreServicio(orden.servicioId)], ['Orden de Admisión', verFechaHora(orden.fechaHora)], ['Médico que ordena', orden.medicoOrdena || null], ['Diagnóstico de ingreso', orden.diagnosticoIngreso || null]]} />
       )}
-      {!camaInicial && <Input label="Habitación y cama" kind="select" value={camaId} onChange={(e) => setCamaId(e.target.value)} options={[VACIO]} groups={grupos} />}
-      {cama && <ListaDatos datos={[['Cama', `${cama.codigo} · habitación ${cama.habitacion}`], ['Piso que lo recibe', nombreServicio(cama.servicioId)]]} />}
+      {!camaInicial && <Input label="Habitación y cama" required kind="select" value={camaId} onChange={(e) => setCamaId(e.target.value)} options={[VACIO]} groups={grupos} />}
+      {cama && <ListaDatos datos={[['Cama', `${cama.codigo}, habitación ${cama.habitacion}`]]} />}
       <CampoFechaHora etiqueta="Fecha de ingreso" value={fechaHora} onChange={setFechaHora} />
     </DialogoAccion>
   )
 }
 
-/* Censo inicial: pacientes que ya estaban hospitalizados cuando arrancó el servicio. */
 export function DialogoCensoInicial({ camaId, onCerrar }) {
   const { estado } = useApp()
   const { error, enviar } = useEnvio(onCerrar)
@@ -82,7 +101,7 @@ export function DialogoCensoInicial({ camaId, onCerrar }) {
       ) : (
         <>
           <Input label="Buscar en el padrón" searchIcon placeholder="N° de HC, DNI o apellidos" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
-          {hallados.map((p) => <Stack key={p.id} direction="row" justify="between" align="center" gap={2}><span>{p.nombres} · HC {p.hc}</span><Button size="sm" tone="ghost" onClick={() => setElegido(p)}>Elegir</Button></Stack>)}
+          {hallados.map((p) => <Stack key={p.id} direction="row" justify="between" align="center" gap={2}><span>{p.nombres}, HC {p.hc}</span><Button size="sm" tone="ghost" onClick={() => setElegido(p)}>Elegir</Button></Stack>)}
           <div className="campos-dos"><Input label="N° de HC" value={nuevo.hc} onChange={campo('hc')} /><Input label="DNI" value={nuevo.dni} onChange={campo('dni')} /></div>
           <Input label="Apellidos y nombres" value={nuevo.nombres} onChange={campo('nombres')} />
           <div className="campos-dos"><Input label="Sexo" kind="select" value={nuevo.sexo} onChange={campo('sexo')} options={[VACIO, { value: 'F', label: 'Femenino' }, { value: 'M', label: 'Masculino' }]} /><Input label="Fecha de nacimiento" kind="date" value={nuevo.nacimiento} onChange={campo('nacimiento')} /></div>
@@ -102,41 +121,49 @@ const gruposOtrosServicios = (incorporados) =>
 
 const OTRO = '__otro'
 
-export function DialogoTraslado({ hospitalizacionId, onCerrar }) {
+/* Traslado: el paciente sigue hospitalizado. Se abre desde la ficha de la cama
+   (con el paciente puesto) o desde el censo (eligiéndolo). El destino no viene
+   elegido: quien registra tiene que decir a dónde va. */
+export function DialogoTraslado({ hospitalizacionId: inicial, onCerrar }) {
   const { estado } = useApp()
   const { error, enviar } = useEnvio(onCerrar)
-  const actual = posicionActual(estado, hospitalizacionId)
+  const [hospitalizacionId, setHosp] = useState(inicial ?? '')
+  const actual = hospitalizacionId ? posicionActual(estado, hospitalizacionId) : null
+  const h = hospitalizacionId ? hospitalizacionPorId(estado, hospitalizacionId) : null
   const incorporados = serviciosConCamas(estado)
-  const [servicioDestino, setDestino] = useState(actual.servicioId)
+  const [servicioDestino, setDestino] = useState('')
   const [otro, setOtro] = useState('')
   const [camaId, setCamaId] = useState('')
   const [fechaHora, setFechaHora] = useState(estado.ahora)
-  const mismo = servicioDestino === actual.servicioId
+  const mismo = Boolean(actual) && servicioDestino === actual.servicioId
   const fuera = servicioDestino === OTRO
+  const otraArea = Boolean(servicioDestino) && !mismo && !fuera
   const confirmar = () => {
     if (fuera) {
       const nombre = otro ? `${nombreServicio(otro)} (${nombreDepartamento(departamentoDeServicio(otro))})` : ''
       return enviar('egreso/registrar', { hospitalizacionId, tipoEgreso: TRASLADO_NO_INCORPORADO, destino: nombre, fechaHora }, 'Traslado registrado. La cama queda libre y la estancia en el sistema se cierra.')
     }
-    return enviar('traslado/registrar', { hospitalizacionId, servicioDestino, camaId, fechaHora }, mismo ? 'Cambio de cama registrado.' : 'Traslado enviado. El otro piso confirmará la cama.')
+    return enviar('traslado/registrar', { hospitalizacionId, servicioDestino, camaId, fechaHora }, mismo ? 'Cambio de cama registrado.' : `Traslado enviado. ${nombreServicio(servicioDestino)} designará la cama.`)
   }
+  const destinos = actual ? [
+    VACIO,
+    ...opcionesServicio(incorporados.filter((s) => s !== actual.servicioId)),
+    { value: actual.servicioId, label: `Otra cama de ${nombreServicio(actual.servicioId)}` },
+    { value: OTRO, label: 'Otro departamento (Cirugía, Pediatría…)' },
+  ] : [VACIO]
   return (
-    <DialogoAccion titulo="Trasladar paciente" subtitulo="Un traslado no es un egreso hospitalario." textoConfirmar={mismo ? 'Cambiar de cama' : fuera ? 'Registrar salida' : 'Enviar traslado'} onCerrar={onCerrar} error={error} onConfirmar={confirmar}>
-      <Input
-        label="Destino"
-        kind="select"
-        value={servicioDestino}
-        onChange={(e) => setDestino(e.target.value)}
-        options={[...opcionesServicio(incorporados).map((o) => (o.value === actual.servicioId ? { ...o, label: `${o.label} (otra cama del mismo piso)` } : o)), { value: OTRO, label: 'Otro departamento (Cirugía, Pediatría…)' }]}
-      />
+    <DialogoAccion titulo="Registrar traslado" subtitulo="El paciente sigue hospitalizado: un traslado no es un alta." textoConfirmar={mismo ? 'Cambiar de cama' : fuera ? 'Registrar salida' : 'Enviar traslado'} onCerrar={onCerrar} error={error} onConfirmar={confirmar}>
+      {!inicial && <CampoPaciente value={hospitalizacionId} onChange={(v) => { setHosp(v); setDestino(''); setCamaId('') }} />}
+      {h && <ListaDatos datos={[...datosPaciente(estado, h.pacienteId), ['Cama actual', estado.camas.find((c) => c.id === actual?.camaId)?.codigo ?? '—'], ['Área actual', nombreServicio(actual?.servicioId)]]} />}
+      {h && <Input label="Área de destino" required kind="select" value={servicioDestino} onChange={(e) => setDestino(e.target.value)} options={destinos} />}
       {mismo && (
         <>
-          <Input label="Cama nueva" kind="select" value={camaId} onChange={(e) => setCamaId(e.target.value)} options={[VACIO, ...camasLibres(estado, actual.servicioId)]} />
+          <Input label="Cama nueva" required kind="select" value={camaId} onChange={(e) => setCamaId(e.target.value)} options={[VACIO, ...camasLibres(estado, actual.servicioId)]} />
           <CampoFechaHora value={fechaHora} onChange={setFechaHora} />
         </>
       )}
-      {!mismo && !fuera && (
-        <Alert tone="info" title="El otro piso elige la cama">El paciente sigue en su cama actual hasta que {nombreServicio(servicioDestino)} confirme su llegada.</Alert>
+      {otraArea && (
+        <Alert tone="info" title={`${nombreServicio(servicioDestino)} designa la cama`}>El paciente sigue en su cama actual hasta que esa área reciba el traslado y le designe una cama.</Alert>
       )}
       {fuera && (
         <>
@@ -157,7 +184,7 @@ export function DialogoConfirmarTraslado({ trasladoId, onCerrar }) {
   const [camaId, setCamaId] = useState('')
   const [fechaHora, setFechaHora] = useState(estado.ahora)
   return (
-    <DialogoAccion titulo="Confirmar llegada del traslado" textoConfirmar="Confirmar llegada" onCerrar={onCerrar} error={error} onConfirmar={() => enviar('traslado/confirmar', { trasladoId, camaId, fechaHora }, 'Traslado confirmado.')}>
+    <DialogoAccion titulo="Recibir traslado y designar cama" subtitulo="Igual que en un ingreso: el área que recibe elige la cama." textoConfirmar="Recibir en esta cama" onCerrar={onCerrar} error={error} onConfirmar={() => enviar('traslado/confirmar', { trasladoId, camaId, fechaHora }, 'Traslado confirmado.')}>
       <ListaDatos datos={[...datosPaciente(estado, h.pacienteId), ['Viene de', nombreServicio(t.servicioOrigen)]]} />
       <Input label="Cama" kind="select" value={camaId} onChange={(e) => setCamaId(e.target.value)} options={[VACIO, ...camasLibres(estado, t.servicioDestino)]} />
       <CampoFechaHora etiqueta="Fecha de llegada" value={fechaHora} onChange={setFechaHora} />
@@ -174,39 +201,89 @@ export function DialogoSoporte({ hospitalizacionId, onCerrar }) {
   const [soporte, setSoporte] = useState(opciones.find((s) => s.value !== actual.soporte)?.value ?? 'ninguno')
   const [fechaHora, setFechaHora] = useState(estado.ahora)
   return (
-    <DialogoAccion titulo="Cambiar soporte" subtitulo="Este dato alimenta el reporte RENOXI." onCerrar={onCerrar} error={error} onConfirmar={() => enviar('soporte/cambiar', { hospitalizacionId, soporte, fechaHora }, 'Soporte actualizado.')}>
+    <DialogoAccion titulo="Oxígeno o ventilación mecánica" subtitulo="Asigna o retira el soporte del paciente. Alimenta el reporte RENOXI." onCerrar={onCerrar} error={error} onConfirmar={() => enviar('soporte/cambiar', { hospitalizacionId, soporte, fechaHora }, 'Soporte actualizado.')}>
       <Input label="Soporte" kind="select" value={soporte} onChange={(e) => setSoporte(e.target.value)} options={opciones} />
       <CampoFechaHora value={fechaHora} onChange={setFechaHora} />
     </DialogoAccion>
   )
 }
 
-/* Alta del paciente. El traslado a otro departamento no va aquí: se registra
-   desde Trasladar. */
-export function DialogoEgreso({ hospitalizacionId, onCerrar }) {
+/* Corrige un alta que en realidad fue traslado. No está en la ficha ni en el
+   censo: solo en Movimientos del día, junto a Anular, para que sea un arreglo y
+   no un camino habitual. */
+export function DialogoAltaATraslado({ hospitalizacionId, onCerrar }) {
   const { estado } = useApp()
   const { error, enviar } = useEnvio(onCerrar)
   const h = hospitalizacionPorId(estado, hospitalizacionId)
-  const [tipoEgreso, setTipo] = useState('alta_medica')
-  const [condicion, setCondicion] = useState('mejorado')
+  const incorporados = serviciosConCamas(estado)
+  const [servicioDestino, setDestino] = useState('')
+  const [otro, setOtro] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const fuera = servicioDestino === OTRO
+  const confirmar = () => enviar('egreso/a_traslado', {
+    hospitalizacionId,
+    servicioDestino: fuera ? otro : servicioDestino,
+    destinoNombre: fuera && otro ? `${nombreServicio(otro)} (${nombreDepartamento(departamentoDeServicio(otro))})` : '',
+    motivo,
+  }, fuera ? 'Alta corregida: salió a un servicio no incorporado.' : `Alta corregida. ${nombreServicio(servicioDestino)} recibirá el traslado.`)
+  return (
+    <DialogoAccion titulo="Corregir: era traslado" subtitulo="Anula el alta con su motivo y registra el traslado." textoConfirmar="Corregir a traslado" tono="danger" onCerrar={onCerrar} error={error} onConfirmar={confirmar}>
+      <Alert tone="warning" title="Solo si el alta se registró por error">El alta deja de contar como egreso. Si el destino es un área del sistema, el paciente vuelve a su cama hasta que esa área lo reciba.</Alert>
+      <ListaDatos datos={[...datosPaciente(estado, h.pacienteId), ['Alta registrada', `${etiquetaEgreso(h.egreso.tipo)}, ${verFechaHora(h.egreso.fechaHora)}`]]} />
+      <Input label="A dónde fue trasladado" required kind="select" value={servicioDestino} onChange={(e) => setDestino(e.target.value)} options={[VACIO, ...opcionesServicio(incorporados.filter((s) => s !== h.egreso.servicioId)), { value: OTRO, label: 'Otro departamento (Cirugía, Pediatría…)' }]} />
+      {fuera && <Input label="Servicio de destino" required kind="select" value={otro} onChange={(e) => setOtro(e.target.value)} options={[VACIO]} groups={gruposOtrosServicios(incorporados)} />}
+      <Input label="Motivo de la corrección" required value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+    </DialogoAccion>
+  )
+}
+
+/* Los procesos de salida son dos: alta (con su tipo) y traslado. El
+   fallecimiento antes o después de 48 h no se elige: el servidor lo calcula
+   con la hora de ingreso. */
+const TIPOS_ALTA = [
+  { value: 'alta_medica', label: 'Alta médica' },
+  { value: 'alta_voluntaria', label: 'Alta voluntaria' },
+  { value: 'fuga', label: 'Fuga (retiro sin alta)' },
+  { value: 'referido', label: 'Referido a otro establecimiento' },
+  { value: 'fallecido', label: 'Fallecido' },
+]
+
+/* Alta completa, registrada por el área: tipo, condición, CIE-10 y médico.
+   Los datos del paciente salen del ingreso; todo lo demás se elige de una
+   lista. Se abre desde la ficha de la cama o desde el censo. */
+export function DialogoEgreso({ hospitalizacionId: inicial, onCerrar }) {
+  const { estado } = useApp()
+  const { error, enviar } = useEnvio(onCerrar)
+  const [hospitalizacionId, setHosp] = useState(inicial ?? '')
+  const h = hospitalizacionId ? hospitalizacionPorId(estado, hospitalizacionId) : null
+  const [tipoEgreso, setTipo] = useState('')
+  const [condicion, setCondicion] = useState('')
+  const [cie10, setCie] = useState('')
+  const [secundario, setSecundario] = useState('')
   const [medicoId, setMedico] = useState('')
   const [fechaHora, setFechaHora] = useState(estado.ahora)
   const [conAlta, setConAlta] = useState(false)
   const [altaMedica, setAltaMedica] = useState(estado.ahora)
-  const fallecido = tipoEgreso.startsWith('fallecido')
+  const fallecido = tipoEgreso === 'fallecido'
+  const horas = h ? (Date.parse(fechaHora) - Date.parse(h.fechaIngreso)) / 3.6e6 : 0
   return (
     <DialogoAccion
-      titulo="Dar de alta"
-      subtitulo="El egreso es corto: los datos del paciente salen del ingreso."
-      textoConfirmar="Registrar egreso"
+      titulo="Registrar alta"
+      subtitulo="El paciente sale del hospital. Si pasa a otra área o servicio, es un traslado."
+      textoConfirmar="Registrar alta"
+      maxWidth={640}
       onCerrar={onCerrar}
       error={error}
-      onConfirmar={() => enviar('egreso/registrar', { hospitalizacionId, tipoEgreso, condicion: fallecido ? 'fallecido' : condicion, medicoId, fechaHora, altaMedica: conAlta ? altaMedica : '' }, 'Egreso registrado. Queda pendiente de la HC en Estadística.')}
+      onConfirmar={() => enviar('egreso/registrar', { hospitalizacionId, tipoEgreso, condicion: fallecido ? 'fallecido' : condicion, cie10, secundarios: secundario ? [secundario] : [], medicoId, fechaHora, altaMedica: conAlta ? altaMedica : '' }, 'Alta registrada. Ya cuenta en el censo y en los indicadores.')}
     >
-      <ListaDatos datos={datosPaciente(estado, h.pacienteId)} />
-      <Input label="Tipo de egreso" kind="select" value={tipoEgreso} onChange={(e) => setTipo(e.target.value)} options={TIPOS_EGRESO} />
-      {!fallecido && <Input label="Condición de egreso" kind="select" value={condicion} onChange={(e) => setCondicion(e.target.value)} options={CONDICIONES_EGRESO.filter((c) => c.value !== 'fallecido')} />}
-      <Input label="Médico que dio el alta" info="Opcional. Si no se indica, Estadística lo toma de la HC." kind="select" value={medicoId} onChange={(e) => setMedico(e.target.value)} options={[{ value: '', label: 'Lo completa Estadística desde la HC' }, ...MEDICOS]} />
+      {!inicial && <CampoPaciente value={hospitalizacionId} onChange={setHosp} />}
+      {h && <ListaDatos datos={[...datosPaciente(estado, h.pacienteId), ['Ingreso', verFechaHora(h.fechaIngreso)], ['Días de estancia', estancia(h.fechaIngreso, fechaHora)], ['Diagnóstico de ingreso', h.diagnosticoIngreso || null]]} />}
+      <Input label="Tipo de alta" required kind="select" value={tipoEgreso} onChange={(e) => setTipo(e.target.value)} options={[VACIO, ...TIPOS_ALTA]} />
+      {fallecido && h && <Alert tone="info" title={horas < 48 ? 'Fallecido antes de 48 h' : 'Fallecido después de 48 h'}>El sistema lo calcula con la hora de ingreso, {verFechaHora(h.fechaIngreso)}.</Alert>}
+      {!fallecido && <Input label="Condición de egreso" required kind="select" value={condicion} onChange={(e) => setCondicion(e.target.value)} options={[VACIO, ...CONDICIONES_EGRESO.filter((c) => c.value !== 'fallecido')]} />}
+      <Input label="Diagnóstico de egreso (CIE-10)" required kind="select" value={cie10} onChange={(e) => setCie(e.target.value)} options={[VACIO, ...CIE10]} />
+      <Input label="Diagnóstico secundario" kind="select" value={secundario} onChange={(e) => setSecundario(e.target.value)} options={[{ value: '', label: 'Ninguno' }, ...CIE10.filter((c) => c.value !== cie10)]} />
+      <Input label="Médico que dio el alta" required kind="select" value={medicoId} onChange={(e) => setMedico(e.target.value)} options={[VACIO, ...MEDICOS]} />
       <CampoFechaHora etiqueta="Fecha de salida" value={fechaHora} onChange={setFechaHora} />
       <SegmentedControl label="¿El alta médica fue en otro momento?" value={conAlta ? 'si' : 'no'} options={[{ value: 'no', label: 'No' }, { value: 'si', label: 'Sí' }]} onChange={(v) => setConAlta(v === 'si')} />
       {conAlta && <CampoFechaHora etiqueta="Fecha del alta médica" value={altaMedica} onChange={setAltaMedica} />}
@@ -244,7 +321,7 @@ export function FichaCama({ camaId, abrir, onCerrar }) {
   if (!info) return null
   const { cama, ocupante, orden, trasladoPendiente } = info
   const puede = cuenta.rol === 'enfermeria' && cuenta.servicios.includes(cama.servicioId)
-  const designa = (cuenta.designa ?? []).includes(cama.departamentoId) && cuenta.servicios.includes(cama.servicioId) && info.libre
+  const designa = puede && info.libre
   const h = ocupante?.hospitalizacion
   const meta = ESTADOS_CAMA_MAPA[info.estado]
   const hayOrdenes = ordenesPendientes(estado, [cama.servicioId]).length > 0
@@ -267,7 +344,7 @@ export function FichaCama({ camaId, abrir, onCerrar }) {
   const ir = (d) => () => abrir(d)
   return (
     <Card
-      title={`Cama ${cama.codigo} · habitación ${cama.habitacion}`}
+      title={`Cama ${cama.codigo}, habitación ${cama.habitacion}`}
       subtitle={h ? 'El paciente que la ocupa y su estancia.' : 'Sin paciente.'}
       meta={
         <Stack direction="row" gap={2} wrap>
@@ -302,9 +379,9 @@ export function FichaCama({ camaId, abrir, onCerrar }) {
             {info.libre && censoInicial && <Button tone="ghost" icon="sh-profile" onClick={ir({ tipo: 'censoInicial', camaId })}>Censo inicial</Button>}
             {/* Bloquear salió de la pantalla (2026-11-12); una cama que ya estaba bloqueada se puede liberar. */}
             {cama.bloqueo && !cama.fueraDeServicio && <Button tone="ghost" onClick={() => hacer('cama/desbloquear', { camaId }, 'Cama desbloqueada.')}>Desbloquear</Button>}
-            {h && !trasladoPendiente && <Button icon="sh-swap" onClick={ir({ tipo: 'traslado', hospitalizacionId: h.id })}>Trasladar</Button>}
-            {h && <Button tone="ghost" icon="sh-drop" onClick={ir({ tipo: 'soporte', hospitalizacionId: h.id })}>Cambiar soporte</Button>}
-            {h && !trasladoPendiente && <Button tone="ghost" icon="sh-send" onClick={ir({ tipo: 'egreso', hospitalizacionId: h.id })}>Dar de alta</Button>}
+            {h && !trasladoPendiente && <Button tone="ghost" icon="sh-send" onClick={ir({ tipo: 'egreso', hospitalizacionId: h.id })}>Registrar alta</Button>}
+            {h && !trasladoPendiente && <Button tone="ghost" icon="sh-swap" onClick={ir({ tipo: 'traslado', hospitalizacionId: h.id })}>Registrar traslado</Button>}
+            {h && <Button tone="ghost" icon="sh-drop" onClick={ir({ tipo: 'soporte', hospitalizacionId: h.id })}>Oxígeno o ventilación</Button>}
             {trasladoPendiente && <Button tone="ghost" onClick={() => hacer('traslado/cancelar', { trasladoId: trasladoPendiente.id }, 'Traslado cancelado.')}>Cancelar traslado</Button>}
             {!orden && info.estado !== 'mantenimiento' && <Button tone="ghost" icon="sh-wrench" onClick={ir({ tipo: 'falla', camaId })}>Enviar a mantenimiento</Button>}
           </Stack>
@@ -312,10 +389,10 @@ export function FichaCama({ camaId, abrir, onCerrar }) {
         {designa && (
           <Stack gap={2}>
             <div><Button icon="sh-plus" disabled={!hayOrdenes} onClick={ir({ tipo: 'ingreso', camaId })}>Designar a un paciente</Button></div>
-            {!hayOrdenes && <p className="texto-apoyo">No hay pacientes enviados por Admisión a {nombreDepartamento(cama.departamentoId)}.</p>}
+            {!hayOrdenes && <p className="texto-apoyo">No hay pacientes enviados por Admisión a {piso}.</p>}
           </Stack>
         )}
-        {!puede && !designa && <p className="texto-apoyo">{cuenta.rol === 'departamento' && cuenta.servicios.includes(cama.servicioId) ? `Desde el ingreso, ${piso} controla al paciente y a esta cama. El departamento solo supervisa.` : `Solo consulta. Esta cama la opera ${piso}.`}</p>}
+        {!puede && !designa && <p className="texto-apoyo">{cuenta.rol === 'departamento' && cuenta.servicios.includes(cama.servicioId) ? `${piso} controla al paciente y a esta cama. El departamento solo monitorea.` : `Solo consulta. Esta cama la opera ${piso}.`}</p>}
       </Stack>
     </Card>
   )

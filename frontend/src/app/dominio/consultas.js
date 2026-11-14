@@ -39,7 +39,7 @@ export const SOPORTES = [
 
 export const ESTADOS_EGRESO = {
   pendiente_hc: { label: 'Pendiente de HC', tono: 'warn' },
-  completo: { label: 'Completo', tono: 'info' },
+  completo: { label: 'Registrado por el área', tono: 'info' },
   observado: { label: 'Observado', tono: 'crit' },
   validado: { label: 'Validado', tono: 'ok' },
   cerrado: { label: 'Cerrado', tono: 'none' },
@@ -287,7 +287,7 @@ export function filasCenso(e, servicioId, dia, nombre = (id) => id) {
       sexo: pac.sexo,
       fechaIngreso: h.fechaIngreso,
       dias: estancia(h.fechaIngreso, egreso?.fechaHora ?? corte),
-      movimiento: delDia.map((m) => letra[m.tipo]).join(' · '),
+      movimiento: delDia.map((m) => letra[m.tipo]).join(', '),
       relacion: relacion.join(', '),
       soporte: p?.soporte ?? null,
       tipoEgreso: egreso?.tipo ?? null,
@@ -393,7 +393,7 @@ export function indicadoresDelMes(e, mes) {
     const A = e.camas.filter((c) => c.servicioId === servicioId).length
     const dias = diasDesdeArranque(e, mes, servicioId).filter((d) => registroCenso(e, servicioId, d)?.estado === 'cerrado')
     const B = dias.reduce((s, d) => s + cuadreCenso(e, servicioId, d).pacientesDia, 0)
-    const egresos = vigentes(e).filter((h) => h.egreso && esEgresoHospitalario(h.egreso.tipo) && mesDe(h.egreso.fechaHora) === mes && ['validado', 'cerrado'].includes(h.egreso.estado) && h.egreso.servicioId === servicioId)
+    const egresos = vigentes(e).filter((h) => h.egreso && esEgresoHospitalario(h.egreso.tipo) && mesDe(h.egreso.fechaHora) === mes && ['completo', 'validado', 'cerrado'].includes(h.egreso.estado) && h.egreso.servicioId === servicioId)
     const C = egresos.reduce((s, h) => s + estancia(h.fechaIngreso, h.egreso.fechaHora), 0)
     /* El promedio de permanencia deja fuera a quien no tiene fecha real de ingreso. */
     const conFecha = egresos.filter((h) => !h.fechaIngresoEstimada)
@@ -430,14 +430,13 @@ export function validarCie(codigo, paciente, fecha) {
 const UMBRAL_ESTANCIA = 60
 const UMBRAL_ORDEN_HORAS = 24
 const UMBRAL_TRASLADO_HORAS = 6
-const UMBRAL_HC_DIAS = 3
 
 export function inconsistencias(e, nombre = (id) => id) {
   const lista = []
   const agregar = (clave, regla, detalle, tono = 'warn') => lista.push({ clave, regla, detalle, tono })
   for (const o of e.ordenes) {
     if (o.estado === 'pendiente' && sumarHoras(o.fechaHora, UMBRAL_ORDEN_HORAS) < e.ahora) {
-      agregar(`o-${o.id}`, 'Orden sin cama confirmada', `${pacientePorId(e, o.pacienteId).nombres}, ${nombre(o.servicioId)}: más de ${UMBRAL_ORDEN_HORAS} h sin confirmación de enfermería.`)
+      agregar(`o-${o.id}`, 'Orden sin cama designada', `${pacientePorId(e, o.pacienteId).nombres}, ${nombre(o.servicioId)}: más de ${UMBRAL_ORDEN_HORAS} h sin que el área designe la cama.`)
     }
   }
   for (const t of e.traslados) {
@@ -448,7 +447,6 @@ export function inconsistencias(e, nombre = (id) => id) {
   for (const h of vigentes(e)) {
     const pac = pacientePorId(e, h.pacienteId)
     if (!h.egreso && estancia(h.fechaIngreso, e.ahora) > UMBRAL_ESTANCIA) agregar(`e-${h.id}`, 'Estancia prolongada', `${pac.nombres}: más de ${UMBRAL_ESTANCIA} días.`)
-    if (h.egreso?.estado === 'pendiente_hc' && estancia(h.egreso.fechaHora, e.ahora) > UMBRAL_HC_DIAS) agregar(`h-${h.id}`, 'HC sin completar', `${pac.nombres}: egreso de hace más de ${UMBRAL_HC_DIAS} días.`, 'crit')
     if (h.egreso?.cie10?.[0]) {
       const error = validarCie(h.egreso.cie10[0], pac, h.egreso.fechaHora)
       if (error) agregar(`c-${h.id}`, 'CIE-10 incompatible', `${pac.nombres}: ${error}`, 'crit')
@@ -483,7 +481,7 @@ export function camposDelEpisodio(e, h, nombreMedico = (id) => id, nombre = (id)
     campo('N° de HC', pac.hc, 'Admisión'),
     campo('Documento', pac.dni, 'Admisión'),
     campo('Nombres', pac.nombres, 'Admisión'),
-    campo('Sexo y fecha de nacimiento', `${pac.sexo} · ${pac.nacimiento}`, 'Admisión'),
+    campo('Sexo y fecha de nacimiento', `${pac.sexo}, ${pac.nacimiento}`, 'Admisión'),
     campo('Origen de la hospitalización', etiqueta(ORIGENES, orden?.origen), 'Admisión'),
     campo('Área de hospitalización', orden ? nombre(orden.servicioId) : null, 'Admisión'),
     campo('Cama de ingreso', cama?.codigo, 'Enfermería de piso'),

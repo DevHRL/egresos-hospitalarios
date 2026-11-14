@@ -1,4 +1,4 @@
-# 0001 · Stack inicial
+# 0001: Stack inicial
 
 - **Estado:** Propuesta
 - **Fecha:** 2026-10-25

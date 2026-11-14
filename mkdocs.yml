@@ -19,16 +19,18 @@ nav:
   - Piloto Medicina: piloto-medicina.md
   - Preguntas técnicas: preguntas-tecnicas.md
   - "Tarea: base de datos PostgreSQL": tareas/base-de-datos-postgresql.md
+  - Excepciones pendientes: tareas/excepciones-pendientes.md
   - Decisiones:
       - decisiones/index.md
-      - 0001 · Stack inicial: decisiones/0001-stack-inicial.md
-      - 0002 · Movimientos como fuente única: decisiones/0002-movimientos-fuente-unica.md
-      - 0003 · Captura dual papel/digital: decisiones/0003-captura-dual-papel-digital.md
-      - 0004 · Plano 2D e isométrico: decisiones/0004-vista-isometrica-svg.md
-      - 0005 · Ingreso obligatorio y reemplazo de Aletheia: decisiones/0005-ingreso-obligatorio-reemplazo-aletheia.md
-      - 0006 · Una credencial por área: decisiones/0006-credencial-por-area.md
-      - 0007 · Orden al departamento y seis cuentas: decisiones/0007-orden-al-departamento-seis-cuentas.md
-      - 0008 · UCI, Quemados y estados de cama: decisiones/0008-uci-quemados-y-estados-de-cama.md
-      - 0009 · Medicina A en el piso 2: decisiones/0009-medicina-a-en-el-piso-2.md
+      - 0001 Stack inicial: decisiones/0001-stack-inicial.md
+      - 0002 Movimientos como fuente única: decisiones/0002-movimientos-fuente-unica.md
+      - 0003 Captura dual papel/digital: decisiones/0003-captura-dual-papel-digital.md
+      - 0004 Plano 2D e isométrico: decisiones/0004-vista-isometrica-svg.md
+      - 0005 Ingreso obligatorio y reemplazo de Aletheia: decisiones/0005-ingreso-obligatorio-reemplazo-aletheia.md
+      - 0006 Una credencial por área: decisiones/0006-credencial-por-area.md
+      - 0007 Orden al departamento y seis cuentas: decisiones/0007-orden-al-departamento-seis-cuentas.md
+      - 0008 UCI, Quemados y estados de cama: decisiones/0008-uci-quemados-y-estados-de-cama.md
+      - 0009 Medicina A en el piso 2: decisiones/0009-medicina-a-en-el-piso-2.md
+      - 0010 El área designa y registra el alta: decisiones/0010-el-area-designa-y-registra-el-alta.md
 plugins:
   - techdocs-core

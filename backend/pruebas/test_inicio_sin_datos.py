@@ -1,4 +1,4 @@
-"""El flujo completo desde una base sin datos de pacientes, con las nueve cuentas.
+"""El flujo completo desde una base sin datos de pacientes, con las diez cuentas.
 
 Es el ensayo de la prueba manual con datos nuevos: `iniciar_sin_datos` deja la
 base vacía y aquí se recorre todo, de la orden de Admisión al cierre del mes.
@@ -21,7 +21,9 @@ from semillas.iniciar_sin_datos import iniciar
 
 BASE = "egresos_inicio"
 ARRANQUE = "2026-11-28"
-CUENTAS = ("admision", "dep.medicina", "medicina.a", "medicina.b", "medicina.int", "uci", "quemados", "estadistica", "mantenimiento")
+CUENTAS = ("admision", "dep.medicina", "medicina.a", "medicina.b", "medicina.int", "uci", "quemados", "estadistica", "mantenimiento", "control.camas")
+ALTA = {"tipoEgreso": "alta_medica", "condicion": "curado", "cie10": "J18.9", "medicoId": "med-1"}
+MEDICO = "Dra. Demo Salazar"
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +80,7 @@ def test_la_base_queda_sin_datos_de_pacientes(conn):
     for tabla in ("paciente", "orden_hospitalizacion", "hospitalizacion", "movimiento", "censo_diario", "egreso", "orden_mantenimiento", "bitacora"):
         assert valor(conn, f"SELECT count(*) FROM {tabla}") == 0, tabla
     assert valor(conn, "SELECT count(*) FROM cama WHERE activa") == 67
-    assert valor(conn, "SELECT count(*) FROM cuenta WHERE activo AND rol <> 'sistema'") == 9
+    assert valor(conn, "SELECT count(*) FROM cuenta WHERE activo AND rol <> 'sistema'") == 10
     assert valor(conn, "SELECT count(*) FROM cie10") > 0 and valor(conn, "SELECT count(*) FROM medico") > 0
     assert sorted(conn.execute(text("SELECT id FROM servicio WHERE fecha_arranque IS NOT NULL")).scalars()) == ["cuidados-criticos", "medicina-a", "medicina-b", "medicina-intermedios", "quemados"]
     for quien in CUENTAS:
@@ -87,17 +89,17 @@ def test_la_base_queda_sin_datos_de_pacientes(conn):
     volcar(conn, "vacio")
 
 
-def test_flujo_completo_con_las_nueve_cuentas(conn):
+def test_flujo_completo_con_las_diez_cuentas(conn):
     d = ARRANQUE
     # Día de arranque: quien ya estaba hospitalizado entra por censo inicial.
     hacer(conn, "medicina.int", f"{d}T07:30", "ingreso/previo", paciente=paciente(0), camaId="cama-i-01", fechaHora="")
 
-    # Admisión → departamento → piso.
-    hacer(conn, "admision", f"{d}T08:00", "orden/registrar", paciente=paciente(1), origen="emergencia", enviadaPor="Enfermería de Emergencia", departamentoId="medicina", diagnosticoIngreso="Neumonía")
+    # Admisión envía al área; el área designa la cama y el departamento solo mira.
+    hacer(conn, "admision", f"{d}T08:00", "orden/registrar", paciente=paciente(1), origen="emergencia", enviadaPor="Enfermería de Emergencia", servicioId="medicina-b", medicoOrdena=MEDICO, diagnosticoIngreso="J18.9 Neumonía, no especificada")
     orden = valor(conn, "SELECT max(id) FROM orden_hospitalizacion")
-    with pytest.raises(ErrorRegla, match="designa"):
-        hacer(conn, "medicina.b", f"{d}T08:30", "ingreso/confirmar", ordenId=orden, camaId="cama-b-01", fechaHora=f"{d}T08:30")
-    hacer(conn, "dep.medicina", f"{d}T08:30", "ingreso/confirmar", ordenId=orden, camaId="cama-b-01", fechaHora=f"{d}T08:30")
+    with pytest.raises(ErrorRegla, match="permiso"):
+        hacer(conn, "dep.medicina", f"{d}T08:30", "ingreso/confirmar", ordenId=orden, camaId="cama-b-01", fechaHora=f"{d}T08:30")
+    hacer(conn, "medicina.b", f"{d}T08:30", "ingreso/confirmar", ordenId=orden, camaId="cama-b-01", fechaHora=f"{d}T08:30")
     h1 = hosp_de(conn, "700001")
     hacer(conn, "medicina.b", f"{d}T09:00", "soporte/cambiar", hospitalizacionId=h1, soporte="o2", fechaHora=f"{d}T09:00")
     hacer(conn, "medicina.b", f"{d}T10:00", "traslado/registrar", hospitalizacionId=h1, servicioDestino="medicina-intermedios")
@@ -105,29 +107,29 @@ def test_flujo_completo_con_las_nueve_cuentas(conn):
     hacer(conn, "medicina.int", f"{d}T10:30", "traslado/confirmar", trasladoId=t, camaId="cama-i-02", fechaHora=f"{d}T10:30")
 
     # Alta.
-    hacer(conn, "admision", f"{d}T11:00", "orden/registrar", paciente=paciente(2), origen="consulta_externa", departamentoId="medicina")
-    hacer(conn, "dep.medicina", f"{d}T11:10", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-b-02", fechaHora=f"{d}T11:10")
-    hacer(conn, "medicina.b", f"{d}T15:00", "egreso/registrar", hospitalizacionId=hosp_de(conn, "700002"), fechaHora=f"{d}T15:00", tipoEgreso="alta_medica", condicion="curado")
+    hacer(conn, "admision", f"{d}T11:00", "orden/registrar", paciente=paciente(2), origen="consulta_externa", servicioId="medicina-b", medicoOrdena=MEDICO)
+    hacer(conn, "medicina.b", f"{d}T11:10", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-b-02", fechaHora=f"{d}T11:10")
+    hacer(conn, "medicina.b", f"{d}T15:00", "egreso/registrar", hospitalizacionId=hosp_de(conn, "700002"), fechaHora=f"{d}T15:00", **ALTA)
 
     # Traslado a otro departamento: cierra al salir.
-    hacer(conn, "admision", f"{d}T12:00", "orden/registrar", paciente=paciente(3, "M"), origen="consulta_externa", departamentoId="medicina")
-    hacer(conn, "dep.medicina", f"{d}T12:10", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-b-03", fechaHora=f"{d}T12:10")
+    hacer(conn, "admision", f"{d}T12:00", "orden/registrar", paciente=paciente(3, "M"), origen="consulta_externa", servicioId="medicina-b", medicoOrdena=MEDICO)
+    hacer(conn, "medicina.b", f"{d}T12:10", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-b-03", fechaHora=f"{d}T12:10")
     hacer(conn, "medicina.b", f"{d}T16:00", "egreso/registrar", hospitalizacionId=hosp_de(conn, "700003"), fechaHora=f"{d}T16:00", tipoEgreso="traslado_no_incorporado", destino="Cirugía")
     assert valor(conn, "SELECT estado FROM v_estado_cama WHERE cama_id = 'cama-b-03'") == "libre"
 
-    # UCI y Quemados: Admisión envía a la unidad y la propia unidad designa la cama.
-    hacer(conn, "admision", f"{d}T12:30", "orden/registrar", paciente=paciente(4), origen="emergencia", enviadaPor="Enfermería de Emergencia", departamentoId="uci-medicina")
+    # UCI y Quemados: igual que cualquier área.
+    hacer(conn, "admision", f"{d}T12:30", "orden/registrar", paciente=paciente(4), origen="emergencia", enviadaPor="Enfermería de Emergencia", servicioId="cuidados-criticos", medicoOrdena=MEDICO)
     hacer(conn, "uci", f"{d}T12:40", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-u-02", fechaHora=f"{d}T12:40")
     hacer(conn, "uci", f"{d}T13:00", "soporte/cambiar", hospitalizacionId=hosp_de(conn, "700004"), soporte="vm", fechaHora=f"{d}T13:00")
-    hacer(conn, "admision", f"{d}T13:10", "orden/registrar", paciente=paciente(5), origen="emergencia", enviadaPor="Enfermería de Emergencia", departamentoId="quemados")
+    hacer(conn, "admision", f"{d}T13:10", "orden/registrar", paciente=paciente(5), origen="emergencia", enviadaPor="Enfermería de Emergencia", servicioId="quemados", medicoOrdena=MEDICO)
     hacer(conn, "quemados", f"{d}T13:20", "ingreso/confirmar", ordenId=valor(conn, "SELECT max(id) FROM orden_hospitalizacion"), camaId="cama-q-01", fechaHora=f"{d}T13:20")
 
-    # Medicina A: designa el departamento, como en B; el piso opera al paciente.
-    hacer(conn, "admision", f"{d}T13:30", "orden/registrar", paciente=paciente(6, "M"), origen="consulta_externa", departamentoId="medicina")
+    # Medicina A: la orden va a A; B no puede designarle cama.
+    hacer(conn, "admision", f"{d}T13:30", "orden/registrar", paciente=paciente(6, "M"), origen="consulta_externa", servicioId="medicina-a", medicoOrdena=MEDICO)
     orden = valor(conn, "SELECT max(id) FROM orden_hospitalizacion")
-    with pytest.raises(ErrorRegla, match="designa"):
-        hacer(conn, "medicina.a", f"{d}T13:40", "ingreso/confirmar", ordenId=orden, camaId="cama-a-24", fechaHora=f"{d}T13:40")
-    hacer(conn, "dep.medicina", f"{d}T13:40", "ingreso/confirmar", ordenId=orden, camaId="cama-a-24", fechaHora=f"{d}T13:40")
+    with pytest.raises(ErrorRegla, match="área"):
+        hacer(conn, "medicina.b", f"{d}T13:40", "ingreso/confirmar", ordenId=orden, camaId="cama-b-05", fechaHora=f"{d}T13:40")
+    hacer(conn, "medicina.a", f"{d}T13:40", "ingreso/confirmar", ordenId=orden, camaId="cama-a-24", fechaHora=f"{d}T13:40")
     hacer(conn, "medicina.a", f"{d}T14:10", "soporte/cambiar", hospitalizacionId=hosp_de(conn, "700006"), soporte="o2", fechaHora=f"{d}T14:10")
 
     # Cama a mantenimiento y de vuelta.
@@ -147,21 +149,20 @@ def test_flujo_completo_con_las_nueve_cuentas(conn):
             hacer(conn, piso, f"{manana}T07:00", "censo/cerrar", servicioId=servicio, dia=dia, conteoFisico=corte, observacion="")
     assert valor(conn, "SELECT pacientes_corte FROM cuadre_censo('medicina-intermedios', '2026-11-28')") == 2
 
-    # Estadística: HC, completado, validación, RENOXI y cierre del mes.
+    # Estadística revisa y valida; control de camas carga RENOXI; se cierra el mes.
     h2 = hosp_de(conn, "700002")
-    hacer(conn, "estadistica", "2026-11-29T09:00", "hc/recibir", hc="700002")
-    hacer(conn, "estadistica", "2026-11-29T09:10", "egreso/completar", hospitalizacionId=h2, cie10="J18.9", medicoId="med-1")
     hacer(conn, "estadistica", "2026-11-29T09:20", "egreso/validar", hospitalizacionId=h2)
-    hacer(conn, "estadistica", "2026-11-29T09:30", "renoxi/marcar", dia="2026-11-28")
+    hacer(conn, "control.camas", "2026-11-29T09:30", "renoxi/marcar", dia="2026-11-28")
     hacer(conn, "estadistica", "2026-12-01T09:00", "mes/cerrar", mes="2026-11")
     assert valor(conn, "SELECT estado FROM periodo WHERE mes = '2026-11-01'") == "cerrado"
     assert valor(conn, "SELECT e FROM indicador_mes_cerrado WHERE base = 'mapeo' AND servicio_id = 'medicina-b'") == 1
 
-    # Cada cuenta recibe su estado sin error y la bitácora nombra a las nueve.
+    # Cada cuenta recibe su estado sin error y la bitácora nombra a las que operan.
     for quien in CUENTAS:
         e = construir(conn, cuenta(conn, quien), "2026-12-01T09:00")
         assert len(e["hospitalizaciones"]) == 7
-    assert set(conn.execute(text("SELECT DISTINCT cuenta_id FROM bitacora")).scalars()) == set(CUENTAS)
+    # El departamento solo monitorea: no aparece en la bitácora.
+    assert set(conn.execute(text("SELECT DISTINCT cuenta_id FROM bitacora")).scalars()) == set(CUENTAS) - {"dep.medicina"}
     conn.execute(text("UPDATE parametro SET valor = CAST(:v AS jsonb) WHERE clave = 'reloj_demo'"), {"v": json.dumps("2026-12-01T09:00")})
     conn.commit()
     volcar(conn, "final")

@@ -1,10 +1,23 @@
 import { useState } from 'react'
 import { Badge, Button, Card, DataTable, Input, PageActions, SegmentedControl, Stack } from '@hrl/core-ui'
-import { ORIGENES, etiqueta, movimientosDe, camaPorId, pacientePorId, departamentosConCamas } from '../../dominio/consultas.js'
+import { ORIGENES, etiqueta, movimientosDe, camaPorId, pacientePorId, serviciosConCamas } from '../../dominio/consultas.js'
 import { verFechaHora } from '../../dominio/tiempo.js'
 import { buscarEnPadron } from '../../datos/admision.js'
-import { GRUPOS_SERVICIO } from '../../datos/catalogo.js'
+import { GRUPOS_SERVICIO, servicioPorId } from '../../datos/catalogo.js'
+import { CIE10, MEDICOS } from '../../datos/clinicos.js'
 import { DialogoAccion, ListaDatos, nombreDepartamento, nombreServicio, useApp, useEnvio } from '../comun.jsx'
+
+/* Las áreas que ya están en el sistema, agrupadas por departamento. */
+function gruposAreas(estado) {
+  const grupos = new Map()
+  for (const id of serviciosConCamas(estado)) {
+    const departamento = servicioPorId(id)?.departamento.nombre ?? 'Otros'
+    grupos.set(departamento, [...(grupos.get(departamento) ?? []), { value: id, label: nombreServicio(id) }])
+  }
+  return [...grupos].map(([label, options]) => ({ label, options }))
+}
+
+const VACIO = { value: '', label: 'Elige…' }
 
 const PACIENTE_VACIO = { hc: '', tipoDocumento: 'dni', dni: '', nombres: '', sexo: '', nacimiento: '', hcMadre: '' }
 const TIPOS_DOCUMENTO = [{ value: 'dni', label: 'DNI' }, { value: 'ce', label: 'Carné de extranjería' }, { value: 'pasaporte', label: 'Pasaporte' }, { value: 'sin_documento', label: 'Sin documento (RN o no identificado)' }]
@@ -16,7 +29,7 @@ function DialogoOrden({ onCerrar }) {
   const [elegido, setElegido] = useState(null)
   const [nuevo, setNuevo] = useState(PACIENTE_VACIO)
   const [origen, setOrigen] = useState('consulta_externa')
-  const [departamentoId, setDepartamento] = useState('')
+  const [servicioId, setServicio] = useState('')
   const [medicoOrdena, setMedico] = useState('')
   const [diagnosticoIngreso, setDx] = useState('')
   const [enviadaPor, setEnviada] = useState('')
@@ -28,12 +41,12 @@ function DialogoOrden({ onCerrar }) {
   return (
     <DialogoAccion
       titulo="Nueva orden de hospitalización"
-      subtitulo="Admisión envía al paciente al departamento. La habitación y la cama las designa el departamento."
-      textoConfirmar="Enviar al departamento"
+      subtitulo="Admisión envía al paciente a un área. La habitación y la cama las designa esa área."
+      textoConfirmar="Enviar al área"
       maxWidth={640}
       onCerrar={onCerrar}
       error={error}
-      onConfirmar={() => enviar('orden/registrar', { ...paciente, origen, departamentoId, medicoOrdena, diagnosticoIngreso, enviadaPor, servicioProcedencia }, 'Orden enviada. El departamento ya la ve en el plano para designar la cama.')}
+      onConfirmar={() => enviar('orden/registrar', { ...paciente, origen, servicioId, medicoOrdena, diagnosticoIngreso, enviadaPor, servicioProcedencia }, `Orden enviada. ${nombreServicio(servicioId)} ya la ve para designar la cama.`)}
     >
       <SegmentedControl label="Por dónde llega" value={origen} options={ORIGENES} onChange={setOrigen} />
       {origen === 'emergencia' && <Input label="Enfermera de Emergencia que envió la orden" required value={enviadaPor} onChange={(e) => setEnviada(e.target.value)} />}
@@ -48,7 +61,7 @@ function DialogoOrden({ onCerrar }) {
           <Input label="Buscar en el padrón" searchIcon placeholder="N° de HC, DNI o apellidos" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
           {hallados.map((p) => (
             <Stack key={p.id} direction="row" justify="between" align="center" gap={2}>
-              <span>{p.nombres} · HC {p.hc} · DNI {p.dni}</span>
+              <span>{p.nombres}, HC {p.hc}, DNI {p.dni}</span>
               <Button size="sm" tone="ghost" onClick={() => setElegido(p)}>Elegir</Button>
             </Stack>
           ))}
@@ -66,11 +79,9 @@ function DialogoOrden({ onCerrar }) {
           </div>
         </Stack>
       )}
-      <Input label="Departamento" required kind="select" value={departamentoId} onChange={(e) => setDepartamento(e.target.value)} options={[{ value: '', label: 'Elige…' }, ...departamentosConCamas(estado).map((id) => ({ value: id, label: nombreDepartamento(id) }))]} />
-      <div className="campos-dos">
-        <Input label="Médico que ordena" value={medicoOrdena} onChange={(e) => setMedico(e.target.value)} />
-        <Input label="Diagnóstico de ingreso" info="Opcional." value={diagnosticoIngreso} onChange={(e) => setDx(e.target.value)} />
-      </div>
+      <Input label="Área de hospitalización" required kind="select" info="El área recibe la orden y designa la habitación y la cama." value={servicioId} onChange={(e) => setServicio(e.target.value)} options={[VACIO]} groups={gruposAreas(estado)} />
+      <Input label="Médico que ordena" required kind="select" value={medicoOrdena} onChange={(e) => setMedico(e.target.value)} options={[VACIO, ...MEDICOS.map((m) => ({ value: m.label, label: m.label }))]} />
+      <Input label="Diagnóstico de ingreso (CIE-10)" kind="select" value={diagnosticoIngreso} onChange={(e) => setDx(e.target.value)} options={[{ value: '', label: 'Sin diagnóstico todavía' }, ...CIE10.map((c) => ({ value: c.label, label: c.label }))]} />
     </DialogoAccion>
   )
 }
@@ -110,8 +121,7 @@ export function Ordenes() {
             { key: 'paciente', label: 'Paciente', render: (o) => pacientePorId(estado, o.pacienteId).nombres },
             { key: 'hc', label: 'N° de HC', width: 100, render: (o) => pacientePorId(estado, o.pacienteId).hc },
             { key: 'origen', label: 'Origen', width: 150, render: (o) => etiqueta(ORIGENES, o.origen) },
-            { key: 'departamento', label: 'Departamento', width: 140, render: (o) => nombreDepartamento(o.departamentoId) },
-            { key: 'servicio', label: 'Área designada', width: 170, render: (o) => (o.servicioId ? nombreServicio(o.servicioId) : '—') },
+            { key: 'servicio', label: 'Área', width: 170, render: (o) => (o.servicioId ? nombreServicio(o.servicioId) : nombreDepartamento(o.departamentoId)) },
             { key: 'estado', label: 'Estado', width: 170, render: (o) => (o.estado === 'pendiente' ? <Badge label="Esperando cama" tone="warn" /> : o.estado === 'anulada' ? <Badge label="Anulada" tone="none" /> : <Badge label={`En cama ${camaDe(o) ?? ''}`} tone="ok" />) },
             { key: 'accion', label: '', width: 100, align: 'right', render: (o) => (o.estado === 'pendiente' ? <Button size="sm" tone="ghost" onClick={() => setAnular(o)}>Anular</Button> : null) },
           ]}

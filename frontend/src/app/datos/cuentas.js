@@ -1,13 +1,11 @@
-/* Las cuentas del prototipo. Todas ven el plano en 3D; el rol decide qué puede
-   hacer cada una y los servicios limitan qué camas opera.
+/* Las cuentas del prototipo. Todas ven el plano de camas; el rol decide qué
+   puede hacer cada una y los servicios limitan qué camas opera.
 
-   El flujo: Admisión envía al paciente al departamento, quien designa
-   habitación y cama, y desde ahí el piso controla al paciente y a su cama. En
-   Medicina designa la cuenta del departamento; en UCI y Quemados, que no tienen
-   una, la propia unidad (2026-11-12, decisión 0008). Las contraseñas son de la
-   demostración: en el sistema real las administra TI. */
-
-import { servicioPorId } from './catalogo.js'
+   El flujo (2026-11-13, decisión 0010): Admisión envía al paciente a un área,
+   esa área designa habitación y cama y desde ahí controla al paciente: soporte,
+   traslados y alta completa con CIE-10. La cuenta del departamento solo
+   monitorea. Las contraseñas son de la demostración: en el sistema real las
+   administra TI. */
 
 const MEDICINA_A = 'medicina-a'
 const MEDICINA_B = 'medicina-b'
@@ -32,7 +30,7 @@ export const CUENTAS = [
     usuario: 'dep.medicina',
     nombre: 'Departamento de Medicina',
     rol: 'departamento',
-    rolLabel: 'Supervisión del departamento',
+    rolLabel: 'Monitoreo del departamento',
     servicios: MEDICINA,
     modulos: ['mapa', 'movimientos', 'censo', 'tablero', 'pacientes', 'cuentas'],
   },
@@ -68,7 +66,7 @@ export const CUENTAS = [
     usuario: 'uci',
     nombre: 'Enfermería UCI',
     rol: 'enfermeria',
-    rolLabel: 'Enfermería de la unidad (designa la cama)',
+    rolLabel: 'Enfermería de piso',
     servicios: [UCI],
     modulos: ['mapa', 'movimientos', 'censo', 'pacientes'],
   },
@@ -77,7 +75,7 @@ export const CUENTAS = [
     usuario: 'quemados',
     nombre: 'Enfermería Quemados',
     rol: 'enfermeria',
-    rolLabel: 'Enfermería de la unidad (designa la cama)',
+    rolLabel: 'Enfermería de piso',
     servicios: [QUEMADOS],
     modulos: ['mapa', 'movimientos', 'censo', 'pacientes'],
   },
@@ -88,7 +86,17 @@ export const CUENTAS = [
     rol: 'jefatura',
     rolLabel: 'Estadística',
     servicios: TODOS,
-    modulos: ['mapa', 'recepcion', 'completado', 'validacion', 'censo', 'consolidado', 'renoxi', 'indicadores', 'pacientes'],
+    modulos: ['mapa', 'recepcion', 'validacion', 'censo', 'consolidado', 'renoxi', 'indicadores', 'pacientes'],
+  },
+  {
+    /* Quien lleva el control diario de camas y carga RENOXI a mano. */
+    id: 'control.camas',
+    usuario: 'control.camas',
+    nombre: 'Control diario de camas',
+    rol: 'camas',
+    rolLabel: 'Control diario de camas y RENOXI',
+    servicios: TODOS,
+    modulos: ['mapa', 'renoxi', 'tablero'],
   },
   {
     id: 'mantenimiento',
@@ -99,18 +107,11 @@ export const CUENTAS = [
     servicios: TODOS,
     modulos: ['mapa', 'mantenimiento'],
   },
-].map((c, _, todas) => ({ ...c, designa: departamentosQueDesigna(c, todas) }))
+]
 
-/* Departamentos en los que la cuenta designa habitación y cama. La cuenta de un
-   departamento designa en el suyo; la enfermería de una unidad, solo si su
-   departamento no tiene esa cuenta. El servidor aplica la misma regla. */
-function departamentosQueDesigna(cuenta, todas) {
-  const departamentos = (c) => c.servicios.map((s) => servicioPorId(s)?.departamento.id)
-  if (cuenta.rol === 'departamento') return [...new Set(departamentos(cuenta))]
-  if (cuenta.rol !== 'enfermeria') return []
-  const conCuenta = new Set(todas.filter((c) => c.rol === 'departamento').flatMap(departamentos))
-  return [...new Set(departamentos(cuenta))].filter((d) => !conCuenta.has(d))
-}
+/* Opera el área (designa camas, registra altas y traslados) solo su enfermería.
+   El servidor aplica la misma regla. */
+export const operaArea = (cuenta, servicioId) => cuenta.rol === 'enfermeria' && cuenta.servicios.includes(servicioId)
 
 export const cuentaPorId = (id) => CUENTAS.find((c) => c.id === id) ?? null
 export const cuentaPorUsuario = (u) => CUENTAS.find((c) => c.usuario === u) ?? null
@@ -118,15 +119,14 @@ export const cuentaPorUsuario = (u) => CUENTAS.find((c) => c.usuario === u) ?? n
 export const MODULOS = {
   /* `encabezadoPropio`: la pantalla pone su título en su columna izquierda y
      el plano ocupa la derecha desde arriba; App no monta la cabecera. */
-  mapa: { label: 'Plano 3D de camas', icono: 'sh-home', grupo: 'Operación', subtitulo: 'Gira, acerca y selecciona una habitación. Cada cuenta ve las acciones que le tocan.', encabezadoPropio: true },
-  ordenes: { label: 'Órdenes de hospitalización', icono: 'sh-doc', grupo: 'Admisión', subtitulo: 'Envía al paciente al departamento. La habitación y la cama las designa el departamento.' },
+  mapa: { label: 'Gestión de camas', icono: 'sh-home', grupo: 'Operación', subtitulo: 'Gira, acerca y selecciona una habitación. Cada cuenta ve las acciones que le tocan.', encabezadoPropio: true },
+  ordenes: { label: 'Órdenes de hospitalización', icono: 'sh-doc', grupo: 'Admisión', subtitulo: 'Envía al paciente a un área. La habitación y la cama las designa esa área.' },
   movimientos: { label: 'Movimientos del día', icono: 'sh-swap', grupo: 'Operación', subtitulo: 'Lo registrado hoy en el servicio. Un movimiento no se borra: se anula con motivo.' },
-  censo: { label: 'Censo diario', icono: 'sh-table', grupo: 'Operación', subtitulo: 'Se genera de los movimientos. Va de 00:00 a 23:59 y se recoge a las 08:00 del día siguiente.' },
+  censo: { label: 'Censo diario', icono: 'sh-table', grupo: 'Operación', subtitulo: 'Se genera de los movimientos. Desde aquí se registran las altas y los traslados. Va de 00:00 a 23:59 y se cierra a las 24:00.' },
   recepcion: { label: 'Recepción de censos', icono: 'sh-inbox', grupo: 'Estadística', subtitulo: 'Qué censos cerraron y qué historias clínicas llegaron.' },
-  completado: { label: 'Completado desde HC', icono: 'sh-pencil', grupo: 'Estadística', subtitulo: 'Egresos que esperan el CIE-10 y el médico del alta, con la HC física en la mano.' },
-  validacion: { label: 'Validación', icono: 'sh-stamp', grupo: 'Estadística', subtitulo: 'Egresos por validar e inconsistencias detectadas.' },
+  validacion: { label: 'Validación', icono: 'sh-stamp', grupo: 'Estadística', subtitulo: 'Revisión de las altas antes de cerrar el mes, e inconsistencias detectadas.' },
   consolidado: { label: 'Consolidado', icono: 'sh-lines', grupo: 'Reportes', subtitulo: 'Censos por día y servicio, y egresos del mes.' },
-  renoxi: { label: 'RENOXI', icono: 'sh-send', grupo: 'Reportes', subtitulo: 'Lista para copiar al formulario web. RENOXI no tiene API.' },
+  renoxi: { label: 'RENOXI', icono: 'sh-send', grupo: 'Reportes', subtitulo: 'Lo del día en el orden del formulario web, para copiarlo o descargarlo. RENOXI no tiene API.' },
   indicadores: { label: 'Indicadores DIRESA', icono: 'sh-chart', grupo: 'Reportes', subtitulo: 'Variables A a I del mes y su cierre.' },
   mantenimiento: { label: 'Órdenes de camas', icono: 'sh-wrench', grupo: 'Mantenimiento', subtitulo: 'Del reporte de la falla hasta que enfermería recibe la cama.' },
   tablero: { label: 'Tablero de ocupación', icono: 'sh-pie', grupo: 'Supervisión', subtitulo: 'Ocupación actual del departamento por área.' },
