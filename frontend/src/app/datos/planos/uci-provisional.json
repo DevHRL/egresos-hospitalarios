@@ -1,0 +1,150 @@
+{
+  "version": 2,
+  "nombre": "UCI Cirugía y UCI Pediatría (provisional: reemplazar por el mapeo físico)",
+  "pisos": [
+    {
+      "id": "piso-uci",
+      "nombre": "UCI (provisional)",
+      "ancho": 44,
+      "alto": 8
+    }
+  ],
+  "zonas": [
+    {
+      "id": "zona-uci-cirugia",
+      "pisoId": "piso-uci",
+      "tipo": "habitacion",
+      "codigo": "UCI-CIR",
+      "nombre": "UCI Cirugía (provisional)",
+      "servicioId": "uci-cirugia",
+      "x": 16.5,
+      "y": 1,
+      "ancho": 14.5,
+      "alto": 5
+    },
+    {
+      "id": "zona-uci-pediatria",
+      "pisoId": "piso-uci",
+      "tipo": "habitacion",
+      "codigo": "UCI-PED",
+      "nombre": "UCI Pediatría (provisional)",
+      "servicioId": "uci-pediatria",
+      "x": 32,
+      "y": 1,
+      "ancho": 10,
+      "alto": 5
+    }
+  ],
+  "camas": [
+    {
+      "id": "cama-uc-01",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-01",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 1,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-uc-02",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-02",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 3.25,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-uc-03",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-03",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 5.5,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-uc-04",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-04",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 7.75,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-uc-05",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-05",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 10,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-uc-06",
+      "zonaId": "zona-uci-cirugia",
+      "codigo": "UC-06",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 12.25,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-up-01",
+      "zonaId": "zona-uci-pediatria",
+      "codigo": "UP-01",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 1,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-up-02",
+      "zonaId": "zona-uci-pediatria",
+      "codigo": "UP-02",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 3.25,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-up-03",
+      "zonaId": "zona-uci-pediatria",
+      "codigo": "UP-03",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 5.5,
+      "y": 0,
+      "rotacion": 0
+    },
+    {
+      "id": "cama-up-04",
+      "zonaId": "zona-uci-pediatria",
+      "codigo": "UP-04",
+      "tipo": "uci",
+      "estado": "operativa",
+      "servicioId": null,
+      "x": 7.75,
+      "y": 0,
+      "rotacion": 0
+    }
+  ]
+}
