@@ -4,7 +4,11 @@ Sistema de egresos hospitalarios. Recopila información de todas las áreas que
 emiten censos, conecta y replica las tablas de Aletheia y hace seguimiento del
 paciente desde su ingreso hasta su egreso.
 
-## Situación actual
+|             |                                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| Proyecto    | `system:default/egresos-hospitalarios`                                                                                           |
+| Responsable | `group:default/stephano`                                                                                       |
+| Repositorio | [DevHRL/egresos-hospitalarios](https://github.com/DevHRL/egresos-hospitalarios) |
 
 Hoy intervienen 4 personas solo en redactar los egresos hospitalarios, y cada
 dato se transcribe a mano cuatro veces:
@@ -32,8 +36,9 @@ Consecuencias medidas en septiembre de 2026:
   negativas (UTIN, Oncología, Medicina) que no reflejan la realidad.
 - **Cuadre manual** de los números sin criterio documentado y sin trazabilidad.
 - **No existe registro de ingresos**: la fecha de ingreso se reconstruye después.
+## Qué hace
 
-## Objetivo
+Describe en dos o tres párrafos qué problema resuelve y para quién.
 
 Reemplazar la cadena papel → censo completado → Aletheia → Excel → RENOXI por
 **un solo registro de movimientos de pacientes por cama**, del que salen
@@ -84,24 +89,10 @@ El sistema reemplaza a Aletheia.
 | Mantenimiento | Recibir las órdenes de camas con falla, registrar retiro, reparación, baja y devolución. |
 | Dirección / jefaturas de departamento | Consultar ocupación y tablero en tiempo real. |
 | TI | Usuarios, respaldos, integración con Aletheia. |
+## Cómo se usa
+
+Los pasos que sigue una persona del hospital para usarlo.
 
 !!! warning "Sin datos de pacientes"
     Ni en este repositorio ni en su documentación va ningún dato de pacientes:
     ni capturas con nombres, ni Excel de ejemplo, ni volcados de la base.
-
-## Contenido de esta documentación
-
-- [Proceso](proceso/index.md): cómo funciona hoy y cómo funcionará, con diagramas.
-- [Reglas de negocio](proceso/reglas.md): definiciones y fórmulas de cálculo.
-- [Completado desde la HC física](proceso/completado-hc.md): cómo se capturan
-  los datos que solo están en papel.
-- [Camas, habitaciones y mantenimiento](proceso/camas-y-mantenimiento.md):
-  inventario, estados de cama y flujo de mantenimiento.
-- [Módulos y pantallas](modulos.md): qué hace cada módulo y cómo se ve.
-- [Arquitectura](arquitectura.md): piezas del sistema, modelo de datos e integraciones.
-- [Tecnologías](tecnologias.md): con qué se construye y por qué.
-- [Decisiones](decisiones/index.md): registro de las decisiones importantes.
-- [Plan de implementación](plan.md): fases, piloto y pendientes que bloquean.
-- [Piloto Medicina](piloto-medicina.md): alcance, lo que falta para empezar y secuencia.
-- [Preguntas técnicas](preguntas-tecnicas.md): lo que falta responder para
-  dimensionar el desarrollo.
